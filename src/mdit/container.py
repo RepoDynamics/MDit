@@ -74,12 +74,14 @@ class Container:
         string: bool = False,
     ) -> list:
         elements = []
+        if isinstance(filters, str):
+            filters = [filters]
         for content, conditions in self.values():
             if not filters or not conditions or any(filter in conditions for filter in filters):
                 if not string:
                     elements.append(content)
                 elif isinstance(content, _MDCode):
-                    elements.append(content.str(target=target, filters=filters))
+                    elements.append(content.source(target=target, filters=filters))
                 else:
                     elements.append(str(content))
         return elements
@@ -129,7 +131,7 @@ class MDContainer(Container):
         self.html_container_conditions = html_container_conditions or []
         return
 
-    def str(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> str:
+    def source(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> str:
         elements = self.elements(target=target, filters=filters, string=True)
         elements_str = self.content_separator.join(elements)
         if self.html_container and self.html_container_attrs and (
@@ -138,12 +140,12 @@ class MDContainer(Container):
             or any(filter in self.html_container_conditions for filter in filters)
         ):
             container_func = getattr(_htmp.element, str(self.html_container))
-            return container_func(_htmp.elementor.markdown(elements_str), self.html_container_attrs).str(indent=-1)
+            return container_func(_htmp.elementor.markdown(elements_str), self.html_container_attrs).source(indent=-1)
         return elements_str
 
     def display(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> None:
         """Display the element in an IPython notebook."""
-        _display.ipython(self.str(target=target, filters=filters))
+        _display.ipython(self.source(target=target, filters=filters))
         return
 
     @property
@@ -176,7 +178,7 @@ class MDContainer(Container):
     #     return f"{newlines_before * '\n'}{md}{newlines_after * '\n'}"
 
     def __str__(self) -> str:
-        return self.str()
+        return self.source()
 
 
 class BlockMDContainer(MDContainer):

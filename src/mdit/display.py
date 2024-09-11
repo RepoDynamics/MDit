@@ -3,7 +3,6 @@
 import webbrowser as _webbrowser
 import tempfile as _tempfile
 import time as _time
-from pathlib import Path as _Path
 
 from IPython import display as _display
 
@@ -20,13 +19,11 @@ def browser(content: str) -> None:
     content : str
         HTML content to display.
     """
-    with _tempfile.NamedTemporaryFile('w', delete=False, suffix='.html') as temp_file:
+    with _tempfile.NamedTemporaryFile('w', suffix='.html') as temp_file:
         temp_file.write(content)
         temp_file.flush()
-        temp_filepath = temp_file.name
-    _webbrowser.open(f'file://{temp_filepath}')
-    _time.sleep(10)
-    _Path(temp_filepath).unlink()
+        _webbrowser.open(f'file://{temp_file.name}')
+        _time.sleep(11)
     return
 
 

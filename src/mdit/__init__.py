@@ -11,14 +11,17 @@ from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from mdit.container import Container, MDContainer, BlockMDContainer, InlineMDContainer
 from mdit.document import Document
-from mdit import target, element, display, parse, protocol
+from mdit.generate import DocumentGenerator
+from mdit import render, target, element, display, parse, protocol, template
 __version__ = "XXX"
 
 if _TYPE_CHECKING:
-    from mdit.protocol import ContainerContentType, ContainerInputType, Stringable
+    from typing import Callable
+    from mdit.protocol import ContainerContentType, ContainerInputType, Stringable, TargetConfig, ANSITargetConfig
 
 
-
+def generate(config: dict):
+    return DocumentGenerator().generate(config)
 
 
 def document(
@@ -31,10 +34,13 @@ def document(
     separate_sections: bool = False,
     toctree_args: dict[str, str] | None = None,
     toctree_dirhtml: bool = True,
-    default_output_target: protocol.TargetConfigType | None = None,
+    target_config_md: dict[str, TargetConfig | dict] | None = None,
+    target_config_ansi: dict[str, ANSITargetConfig | dict] | None = None,
+    default_output_target: str = "sphinx",
+    deep_section_generator: Callable[[Document], str] | None = None,
 ):
     if heading and not isinstance(heading, element.Heading):
-        heading = element.heading(1, heading)
+        heading = element.heading(content=heading, level=1)
     body = container(body, "\n\n")
     if isinstance(section, Container):
         pass
@@ -49,6 +55,15 @@ def document(
     footer = container(footer, "\n\n")
     if isinstance(frontmatter, dict):
         frontmatter = element.frontmatter(frontmatter)
+    target_config = {}
+    for key, config in (target_config_md or {}).items():
+        config_obj = config if isinstance(config, protocol.TargetConfig) else target.custom(**config)
+        target_config[key] = config_obj
+    for key, config in (target_config_ansi or {}).items():
+        config_obj = config if isinstance(config, protocol.ANSITargetConfig) else target.ansi(**config)
+        if key in target_config:
+            raise ValueError(f"Target config key '{key}' already exists.")
+        target_config[key] = config_obj
     return Document(
         heading=heading,
         body=body,
@@ -59,7 +74,9 @@ def document(
         separate_sections=separate_sections,
         toctree_args=toctree_args,
         toctree_dirhtml=toctree_dirhtml,
+        target_config=target_config,
         default_output_target=default_output_target,
+        deep_section_generator=deep_section_generator,
     )
 
 

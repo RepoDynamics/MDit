@@ -1,7 +1,7 @@
 from __future__ import annotations
 import re as _re
 
-# import pyserials as _ps
+import pyserials as _ps
 
 
 def frontmatter(file_content: str) -> dict:

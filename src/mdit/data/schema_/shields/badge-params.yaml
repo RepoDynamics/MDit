@@ -1,0 +1,174 @@
+$id: https://pybadger.repodynamics.com/schema/shields/badge-params
+$schema: https://json-schema.org/draft/2020-12/schema
+title: Shields Badge Parameters
+description: Common settings for [shields.io](https://shields.io) badges.
+type: object
+additionalProperties: false
+properties:
+  label:
+    title: Badge Label
+    description: Label of the badge, i.e., the text displayed on the left side of the badge.
+    type: string
+  style:
+    title: Badge Style
+    description: Style of the badge.
+    type: string
+    enum: [ flat, flat-square, plastic, for-the-badge, social ]
+  color:
+    title: Badge Color
+    description: Color of the badge.
+    $ref: https://jsonschemata.repodynamics.com/color/css
+  label_color:
+    title: Badge Label Color
+    description: Color of the badge label.
+    $ref: https://jsonschemata.repodynamics.com/color/css
+  logo:
+    title: Badge Logo
+    description: |
+      It can either be a [Simple Icons](https://simpleicons.org/) icon slug
+      (see [full list](https://github.com/simple-icons/simple-icons/blob/master/slugs.md)),
+      a base64-encoded data URI with 'image' media type
+      (cf. [Shields.IO documentation](https://shields.io/docs/logos)),
+      or a URL or local filepath to an image file.
+      The `logo_type` key can be used to explicitly define the type of logo data,
+      otherwise it is determined as follows:
+      1. If it starts with 'data:', it is a data URI.
+      2. If it starts with 'http' or 'https', it is a URL.
+      3. If it exists as a file, it is a local filepath.
+      4. It is a Simple Icons slug.
+      The Shields API only accepts Simple Icons slugs and data URIs;
+      images from URLs and local filepaths are downloaded/read and automatically converted to data URIs.
+    $ref: https://jsonschemata.repodynamics.com/string/oneline
+  logo_color:
+    title: Badge Logo Color
+    description: |
+      Color of the badge logo.
+      This is only applicable if `logo` is set to a Simple Icons slug.
+    $ref: https://jsonschemata.repodynamics.com/color/css
+  logo_width:
+    title: Badge Logo Width
+    description: |
+      Width of the badge logo.
+    oneOf:
+      - $ref: https://jsonschemata.repodynamics.com/integer/non-negative
+      - type: string
+        pattern: ^[1-9]\d*$
+  logo_size:
+    title: Badge Logo Size
+    description: |
+      Make the logo adaptively resize, by setting this value to 'auto'
+      This is only applicable if `logo` is set to a Simple Icons slug.
+    type: stringtheme_params
+    enum: [ auto ]
+  logo_type:
+    title: Logo Data Type
+    description: |
+      Explicitly define the type of logo data:
+      - 'name': Simple Icons slug
+      - 'data': base64-encoded data URI
+      - 'file': Local filepath to an image file
+      - 'url': URL to an image file
+    type: string
+    enum: [ name, data, file, url ]
+  logo_media_type:
+    title: Logo Media Type
+    description: |
+      Media type of the logo data.
+      This is only applicable if the logo data is a URL or local filepath.
+      In these cases, if the media type is not explicitly defined, it will
+      be guessed from the extension of the image file,
+      raising an error if the media type cannot be determined.
+      Such cases can be prevented by explicitly defining the media type here.
+    type: string
+    enum:
+      - aces
+      - apng
+      - avci
+      - avcs
+      - avif
+      - bmp
+      - cgm
+      - dicom-rle
+      - dpx
+      - emf
+      - example
+      - fits
+      - g3fax
+      - gif
+      - heic
+      - heic-sequence
+      - heif
+      - heif-sequence
+      - hej2k
+      - hsj2
+      - ief
+      - j2c
+      - jls
+      - jp2
+      - jpeg
+      - jph
+      - jphc
+      - jpm
+      - jpx
+      - jxl
+      - jxr
+      - jxrA
+      - jxrS
+      - jxs
+      - jxsc
+      - jxsi
+      - jxss
+      - ktx
+      - ktx2
+      - naplps
+      - png
+      - prs.btif
+      - prs.pti
+      - pwg-raster
+      - svg+xml
+      - t38
+      - tiff
+      - tiff-fx
+      - vnd.adobe.photoshop
+      - vnd.airzip.accelerator.azv
+      - vnd.cns.inf2
+      - vnd.dece.graphic
+      - vnd.djvu
+      - vnd.dwg
+      - vnd.dxf
+      - vnd.dvb.subtitle
+      - vnd.fastbidsheet
+      - vnd.fpx
+      - vnd.fst
+      - vnd.fujixerox.edmics-mmr
+      - vnd.fujixerox.edmics-rlc
+      - vnd.globalgraphics.pgb
+      - vnd.microsoft.icon
+      - vnd.mix
+      - vnd.ms-modi
+      - vnd.mozilla.apng
+      - vnd.net-fpx
+      - vnd.pco.b16
+      - vnd.radiance
+      - vnd.sealed.png
+      - vnd.sealedmedia.softseal.gif
+      - vnd.sealedmedia.softseal.jpg
+      - vnd.svf
+      - vnd.tencent.tap
+      - vnd.valve.source.texture
+      - vnd.wap.wbmp
+      - vnd.xiff
+      - vnd.zbrush.pcx
+      - webp
+      - wmf
+      - x-icon
+  cache_seconds:
+    title: Cache Seconds
+    description: |
+      Number of seconds to cache the badge data.
+      This is useful to reduce the load on the Shields.IO server,
+      by increasing the number of static badges.
+    oneOf:
+      - $ref: https://jsonschemata.repodynamics.com/integer/non-negative
+      - type: string
+        pattern: ^[1-9]\d*$

@@ -1,0 +1,46 @@
+type: object
+required: [ id, elements ]
+properties:
+  id:
+    type: string
+    const: badges
+  elements:
+    type: array
+    minItems: 1
+    items:
+      anyOf:
+        - $ref: doc-badge
+        - type: string
+  div_align:
+    title: Alignment of the div element.
+    $ref: doc-html-attr-align
+  spacer:
+    title: Space element between badges.
+    type: string
+  default:
+    title: General badge configurations.
+    description: |
+      Any settings here will be used as the default value for all footer badges.
+    allOf:
+      - $ref: doc-html-attrs
+      - properties:
+          style:
+            $ref: doc-badge-attr-style
+          label:
+            type: object
+            additionalProperties: false
+            properties:
+              text:
+                type: string
+              color:
+                $ref: doc-color-theme_gradient
+          message:
+            type: object
+            additionalProperties: false
+            properties:
+              text:
+                type: string
+              color:
+                $ref: doc-color-theme_gradient
+          logo:
+            $ref: doc-badge-attr-logo_theme

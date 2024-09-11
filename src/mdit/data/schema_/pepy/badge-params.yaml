@@ -1,0 +1,31 @@
+$id: https://pybadger.repodynamics.com/schema/pepy/badge-params
+$schema: https://json-schema.org/draft/2020-12/schema
+title: PePy Badge Parameters
+description: Common settings for [PePy](https://www.pepy.tech) personalized badges.
+$comment: |
+  References:
+  - https://github.com/psincraian/pepy/blob/5199022173562ed0118f947c6c58371e2dd2aaec/pepy/domain/model.py#L161
+  - https://github.com/psincraian/pepy/blob/master/pepy/application/badge_service.py
+  - https://github.com/google/pybadges/blob/master/pybadges/__init__.py
+type: object
+additionalProperties: false
+properties:
+  left_text:
+    title: Badge Label
+    description: Label of the badge, i.e., the text displayed on the left side of the badge.
+    type: string
+  left_color:
+    title: Badge Label Color
+    description: Color of the badge label.
+    $ref: https://jsonschemata.repodynamics.com/color/css
+  right_color:
+    title: Badge Color
+    description: Color of the right side of the badge.
+    $ref: https://jsonschemata.repodynamics.com/color/css
+  units:
+    title: Units
+    description: |
+      Unit of numbers shown on the badge.
+    type: string
+    enum: [ international_system, abbreviation, none ]
+    default: international_system

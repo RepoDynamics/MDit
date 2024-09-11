@@ -31,13 +31,15 @@ class DocumentGenerator:
         }
         return
 
-    def generate(self, config: dict):
+    def generate(self, config: dict, base: bool = True):
         config = copy.deepcopy(config)
+        if base and "class" in config:
+            return self.generate_template(config)
         heading = self.elem_heading(config["heading"]) if "heading" in config else None
         body = self.generate_container(config["body"]) if "body" in config else None
         sections = []
         for section in config.get("section", []):
-            sections.append(self.generate(section))
+            sections.append(self.generate(section, base=False))
         footer = self.generate_container(config["footer"]) if "footer" in config else None
         frontmatter = self.elem_frontmatter(config["frontmatter"]) if "frontmatter" in config else None
         return _mdit.document(
@@ -52,6 +54,12 @@ class DocumentGenerator:
             toctree_dirhtml=config.get("toctree_dirhtml", True),
             default_output_target=config.get("default_output_target", "sphinx"),
         )
+
+    def generate_template(self, config: dict):
+        template_name = config.pop("class")
+        generator = self._get_elem_generator(_mdit.template, template_name, "template")
+        return generator(**config)
+
 
     def generate_container(self, container: str | list[str | dict, list[str | dict]]):
         if isinstance(container, str):

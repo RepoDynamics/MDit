@@ -2,31 +2,34 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 from types import FunctionType as _FunctionType
-
+from contextlib import contextmanager as _contextmanager
 import re as _re
 
 import htmp as _htmp
-# import pyserials as _ps
+import pyserials as _ps
 import pybadger as _bdg
 import pycolorit as _pcit
+import ansi_sgr as _sgr
 
 import mdit as _mdit
-from mdit.protocol import MDCode as _MDCode, TargetConfig as _TargetConfig
+from mdit.protocol import MDCode as _MDCode, TargetConfig as _TargetConfig, \
+    ANSITargetConfig as _ANSITargetConfig
 from mdit import display as _display, target as _target
 
 if _TYPE_CHECKING:
-    from typing import Literal
+    from typing import Literal, Sequence
     from mdit import MDContainer, BlockMDContainer, InlineMDContainer
-    from mdit.protocol import Stringable, ContainerInputType, TargetConfigType
+    from mdit.protocol import Stringable, ContainerInputType, TargetConfigType, ANSIInlineStyle, ANSIBlockStyle
 
 
 class Element:
 
     _IS_MD_CODE = True
     _TARGET_CONFIG = {
-        "sphinx" : _target.sphinx(),
-        "github" : _target.github(),
-        "pypi" : _target.pypi(),
+        "sphinx": _target.sphinx(),
+        "github": _target.github(),
+        "pypi": _target.pypi(),
+        "ansi": _target.ansi(),
     }
 
     def __init__(
@@ -35,24 +38,50 @@ class Element:
     ):
         self.default_output_target = default_output_target
 
-    def str(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> str:
-        ...
+    def source(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> str:
+        target = self._resolve_target(target)
+        if isinstance(target, _ANSITargetConfig):
+            return self._str_ansi(target=target, filters=filters)
+        return self._str_md(target=target, filters=filters)
 
     def display(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> None:
         """Display the element in an IPython notebook."""
-        _display.ipython(self.str(target=target, filters=filters))
+        target = self._resolve_target(target)
+        output_str = self.source(target=target, filters=filters)
+        if isinstance(target, _ANSITargetConfig):
+            print(output_str)
+        else:
+            _display.ipython(output_str)
         return
+
+    @_contextmanager
+    def temp(self, **kwargs):
+        orig_val = {}
+        new_attrs = []
+        try:
+            for key, new_value in kwargs.items():
+                if hasattr(self, key):
+                    orig_val[key] = getattr(self, key)
+                else:
+                    new_attrs.append(key)
+                setattr(self, key, new_value)
+            yield
+        finally:
+            for key, old_value in orig_val.items():
+                setattr(self, key, old_value)
+            for key in new_attrs:
+                delattr(self, key)
 
     @property
     def code_fence_count(self) -> int:
         return 0
 
     def __str__(self):
-        return self.str()
+        return self.source()
 
     def _resolve_target(self, target: TargetConfigType | None = None) -> _TargetConfig:
         target = target or self.default_output_target
-        if isinstance(target, _TargetConfig):
+        if isinstance(target, (_TargetConfig, _ANSITargetConfig)):
             return target
         return self._TARGET_CONFIG[target]
 
@@ -65,7 +94,17 @@ class Element:
         if not (container and attrs_container):
             return content
         container_func = getattr(_htmp.element, str(container))
-        return container_func(_htmp.elementor.markdown(content), attrs_container).str(indent=-1)
+        return container_func(_htmp.elementor.markdown(content), attrs_container).source(indent=-1)
+
+    def _str_ansi(self, target: _ANSITargetConfig, filters: str | list[str] | None = None) -> str:
+        raise NotImplementedError
+
+    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+        raise NotImplementedError
+
+    def _format_inline_ansi(self, text: str, style: ANSIInlineStyle):
+        text_full = f"{style.char_left}{text}{style.char_right}"
+
 
 
 class Admonition(Element):
@@ -87,13 +126,13 @@ class Admonition(Element):
         "note": "ℹ️",
         "important": "❗",
         "hint": "💡",
-        "seealso": "💡",
+        "seealso": "↪️",
         "tip": "💡",
         "attention": "⚠️",
         "caution": "⚠️",
         "warning": "⚠️",
         "danger": "🚨",
-        "error": "🚨",
+        "error": "❌",
     }
 
     def __init__(
@@ -113,6 +152,7 @@ class Admonition(Element):
         title: Stringable,
         content: MDContainer,
         dropdown: bool = False,
+        opened: bool = True,
         classes: list[Stringable] | None = None,
         add_type_class: bool = True,
         name: Stringable | None = None,
@@ -127,6 +167,7 @@ class Admonition(Element):
         self.title = title
         self.content = content
         self.dropdown = dropdown
+        self.opened = opened
         self.classes = classes or []
         self.add_type_class = add_type_class
         self.name = name
@@ -136,13 +177,19 @@ class Admonition(Element):
         self.emoji = emoji or self.MYST_TO_EMOJI[type]
         return
 
-    def str(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> str:
-        target = self._resolve_target(target)
+    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
         if target.directive_admo:
             return self._str_admo(target=target, filters=filters)
         if target.alerts:
             return self._str_alert(target=target, filters=filters)
         return self._str_blockquoute(target=target, filters=filters)
+
+    def _str_ansi(self, target: _ANSITargetConfig, filters: str | list[str] | None = None) -> str:
+        title = str(self.title)
+        content = self.content.source(target=target, filters=filters)
+        config = getattr(target, f"admonition_{self.type}")
+        return _sgr.element.admonition(title=title, text=content, **config.dict)
+
 
     @property
     def code_fence_count(self) -> int:
@@ -156,25 +203,27 @@ class Admonition(Element):
             classes.extend(self.classes)
         if self.dropdown:
             classes.append("dropdown")
-        options = {"class": classes, "name": self.name}
+        if self.opened:
+            classes.append("toggle-shown")
+        options = {"class": list(set(classes)), "name": self.name}
         return directive(
             name="admonition",
             args=self.title,
             options=options,
             content=self.content,
-        ).str(target=target, filters=filters)
+        ).source(target=target, filters=filters)
 
     def _str_alert(self, target: TargetConfigType, filters: str | list[str] | None = None):
         lines = [f"[!{self.type_github.upper()}]"]
         new_target = target.copy()
         new_target.alerts = False  # Alerts cannot contain other alerts
-        content = self.content.str(target=new_target, filters=filters)
+        content = self.content.source(target=new_target, filters=filters)
         title = str(self.title)
         if self.title_bold:
             title = _htmp.element.strong(title)
         if self.dropdown:
             details_content = [_htmp.element.summary(title), _htmp.elementor.markdown(content)]
-            details_str = str(_htmp.element.details(details_content))
+            details_str = str(_htmp.element.details(details_content, {"open": self.opened}))
             lines.extend(details_str.splitlines())
         else:
             if self.title_tight:
@@ -188,14 +237,14 @@ class Admonition(Element):
 
     def _str_blockquoute(self, target: TargetConfigType, filters: str | list[str] | None = None):
         lines = []
-        content = self.content.str(target=target, filters=filters)
+        content = self.content.source(target=target, filters=filters)
         title = str(self.title)
         if self.title_bold:
             title = _htmp.element.strong(title)
         if self.dropdown:
             summary = f"{self.emoji}&ensp;{title}"
             details_content = [_htmp.element.summary(summary), _htmp.elementor.markdown(content)]
-            details_str = str(_htmp.element.details(details_content))
+            details_str = str(_htmp.element.details(details_content, {"open": self.opened}))
             lines.extend(details_str.splitlines())
         else:
             if self.title_tight:
@@ -229,9 +278,8 @@ class Attribute(Element):
         self.comment = comment
         return
 
-    def str(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> str:
-        target = self._resolve_target(target)
-        content = self.content.str(target=target, filters=filters) if isinstance(self.content, _MDCode) else str(self.content)
+    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+        content = self.content.source(target=target, filters=filters) if isinstance(self.content, _MDCode) else str(self.content)
         if not (target.attrs_block if self.block else target.attrs_inline):
             return content
         attrs = []
@@ -314,7 +362,7 @@ class BlockImage(Element):
         self.attrs_container = attrs_container or {}
         return
 
-    def str(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> str:
+    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
         target = self._resolve_target(target)
         if target.directive_image or target.directive_figure:
             return self._str_directive(target=target, filters=filters)
@@ -332,7 +380,7 @@ class BlockImage(Element):
             attrs_source_dark=self.attrs_source_dark,
             attrs_picture=self.attrs_picture,
         ) if self.src_dark and target.picture_theme else _htmp.element.img(attrs_img)
-        caption = self.caption.str(target=target, filters=filters)
+        caption = self.caption.source(target=target, filters=filters)
         if caption:
             caption_tag = _htmp.element.figcaption(caption, self.attrs_figcaption)
             image = _htmp.element.figure([image, caption_tag], self.attrs_figure)
@@ -375,7 +423,7 @@ class BlockImage(Element):
                 "figwidth": self.width_figure,
                 "figclass": self.classes_figure,
             }
-            content = self.caption.str(target=target, filters=filters) if self.caption else None
+            content = self.caption.source(target=target, filters=filters) if self.caption else None
         else:
             content = None
         figure_light = directive(
@@ -383,7 +431,7 @@ class BlockImage(Element):
             args=self.src,
             options=options,
             content=content,
-        ).str(target=target, filters=filters)
+        ).source(target=target, filters=filters)
         if not self.src_dark:
             return figure_light
         options["class"] = self.classes + self.classes_dark
@@ -392,7 +440,7 @@ class BlockImage(Element):
             args=self.src_dark,
             options=options,
             content=content,
-        ).str(target=target, filters=filters)
+        ).source(target=target, filters=filters)
         return f"{figure_light}\n{figure_dark}"
 
 
@@ -421,14 +469,14 @@ class BlockQuote(Element):
         self.attrs_container = attrs_container or {}
         return
 
-    def str(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> str:
+    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
 
         def make_md_blockquote(lines: list[str]) -> str:
             return "\n".join(f"> {line}" for line in lines)
 
         target = self._resolve_target(target)
-        content = self.content.str(target=target, filters=filters)
-        cite = self.cite.str(target=target, filters=filters) if self.cite else None
+        content = self.content.source(target=target, filters=filters)
+        cite = self.cite.source(target=target, filters=filters) if self.cite else None
         cite_line = f"&mdash;{cite}"
         if not (content or cite):
             return ""
@@ -439,7 +487,7 @@ class BlockQuote(Element):
             blockquote = _htmp.element.blockquote(
                 blockquote_content,
                 self.attrs | {"class": self.classes, "id": self.name},
-            ).str(indent=-1)
+            ).source(indent=-1)
             return self._wrap(content=blockquote, container=self.container, attrs_container=self.attrs_container)
         lines = content.splitlines()
         if not (self.classes or self.name or cite):
@@ -451,7 +499,7 @@ class BlockQuote(Element):
                 classes=self.classes,
                 name=self.name,
                 attrs={"attribution": cite} if cite else None,
-            ).str(target=target, filters=filters)
+            ).source(target=target, filters=filters)
         if cite:
             lines.append(cite_line)
         blockquote = make_md_blockquote(lines)
@@ -459,7 +507,7 @@ class BlockQuote(Element):
             return target_anchor(
                 content=blockquote,
                 name=self.name,
-            ).str(target=target, filters=filters)
+            ).source(target=target, filters=filters)
         return blockquote
 
 
@@ -517,16 +565,15 @@ class Card(Element):
         self.classes_img_bottom = classes_img_bottom or []
         return
 
-    def str(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> str:
-        target = self._resolve_target(target)
+    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
         content = []
         if self.header:
-            header = self.header.str(target=target, filters=filters)
+            header = self.header.source(target=target, filters=filters)
             content.extend([header, "^^^"])
         if self.body:
-            content.append(self.body.str(target=target, filters=filters))
+            content.append(self.body.source(target=target, filters=filters))
         if self.footer:
-            footer = self.footer.str(target=target, filters=filters)
+            footer = self.footer.source(target=target, filters=filters)
             content.extend(["+++", footer])
         content_str = "\n".join(content)
         options = {
@@ -554,7 +601,7 @@ class Card(Element):
             args=self.title,
             options=options,
             content=content_str,
-        ).str(target=target, filters=filters)
+        ).source(target=target, filters=filters)
 
 
 class CodeBlock(Element):
@@ -570,6 +617,7 @@ class CodeBlock(Element):
         force: bool = False,
         name: Stringable | None = None,
         classes: Stringable | list[Stringable] | None = None,
+        degrade_to_diff: bool = True,
         default_output_target: TargetConfigType = "sphinx",
     ):
         super().__init__(default_output_target=default_output_target)
@@ -578,14 +626,14 @@ class CodeBlock(Element):
         self.caption = caption
         self.line_num = line_num
         self.line_num_start = line_num_start
-        self.emphasize_lines = emphasize_lines
+        self.emphasize_lines = emphasize_lines or []
         self.force = force
         self.name = name
-        self.classes = classes
+        self.classes = classes or []
+        self.degrade_to_diff = degrade_to_diff
         return
 
-    def str(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> str:
-        target = self._resolve_target(target)
+    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
         if target.directive_code:
             options = {
                 "caption": self.caption,
@@ -601,18 +649,62 @@ class CodeBlock(Element):
                 args=self.language,
                 options=options,
                 content=self.content,
-            ).str(target=target, filters=filters)
+            ).source(target=target, filters=filters)
         fence = target.fence * self.code_fence_count
-        start_line = f"{fence}{self.language}"
-        content = self.content.str(target=target, filters=filters)
+        content = self.content.source(target=target, filters=filters)
+        if self.emphasize_lines and self.degrade_to_diff:
+            language = "diff"
+            content_lines = content.splitlines()
+            content = "\n".join(
+                f"- {line}" if i + 1 in self.emphasize_lines else line
+                for i, line in enumerate(content_lines)
+            )
+        else:
+            language = self.language
+        start_line = f"{fence}{language}"
         block = f"{start_line}\n{content}\n{fence}"
         if self.caption:
             return f"**{self.caption}**\n{block}"
         return block
 
+    def _str_ansi(self, target: _ANSITargetConfig, filters: str | list[str] | None = None) -> str:
+        code = self.content.source(target=target, filters=filters)
+        return _sgr.element.code_block(
+            title=self.caption or "Code",
+            code=code,
+            line_num=self.line_num,
+            line_num_start=self.line_num_start or 1,
+            emphasize_lines=self.emphasize_lines,
+            **target.code_block.dict
+        )
+
     @property
     def code_fence_count(self):
         return max(self.content.code_fence_count, 2) + 1
+
+
+class CodeSpan(Element):
+
+    def __init__(
+        self,
+        content: Stringable,
+        language: Stringable | None = None,
+        attrs: dict | None = None,
+        default_output_target: TargetConfigType = "sphinx",
+    ):
+        super().__init__(default_output_target=default_output_target)
+        self.content = content
+        self.language = language
+        self.attrs = attrs or {}
+        return
+
+    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+        if not target.prefer_md:
+            return _htmp.element.code(self.content, self.attrs).source(indent=-1)
+        return f"`{self.content}`"
+
+    def _str_ansi(self, target: _ANSITargetConfig, filters: str | list[str] | None = None) -> str:
+        return _sgr.element.inline(text=self.content, **target.code_span.dict)
 
 
 class Directive(Element):
@@ -636,7 +728,7 @@ class Directive(Element):
     def code_fence_count(self) -> int:
         return max(self.content.code_fence_count, 2) + 1
 
-    def str(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> str:
+    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
 
         def options():
             if not self.options:
@@ -658,9 +750,9 @@ class Directive(Element):
             return f"{"\n".join(option_lines)}\n"
 
         target = self._resolve_target(target)
-        content = f"\n{self.content.str(target=target, filters=filters)}\n\n" if self.content else ""
+        content = f"\n{self.content.source(target=target, filters=filters)}\n\n" if self.content else ""
         fence = target.fence * self.code_fence_count
-        args = self.args.str(target=target, filters=filters) if self.args else ""
+        args = self.args.source(target=target, filters=filters) if self.args else ""
         start_line = f"{fence}{{{self.name}}} {args}"
         opts = options()
         return f"{start_line}\n{opts}{content}{fence}"
@@ -671,7 +763,7 @@ class FieldListItem(Element):
         self,
         title: MDContainer,
         description: MDContainer | None = None,
-        indent: int = 4,
+        indent: int = 3,
         default_output_target: TargetConfigType = "sphinx",
     ):
         super().__init__(default_output_target=default_output_target)
@@ -680,13 +772,27 @@ class FieldListItem(Element):
         self.indent = indent
         return
 
-    def str(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> str:
-        target = self._resolve_target(target)
-        title = self.title.str(target=target, filters=filters)
-        description = self.description.str(target=target, filters=filters) if self.description else ""
-        first_line, *lines = description.strip().split("\n")
-        description = "\n".join([first_line] + [f"{' ' * self.indent}{line}" for line in lines])
-        return f":{title}: {description}".strip()
+    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+        title = self.title.source(target=target, filters=filters)
+        description = self.description.source(target=target, filters=filters) if self.description else ""
+        indent = " " * (self.indent if target.field_list else 2)  # 2 for normal list
+        description_indented = "\n".join(f"{indent}{line}" for line in description.splitlines()).strip()
+        if target.field_list:
+            return f":{title}: {description}".strip()
+        return f"- **{title}**{f": {description_indented}" if description_indented else ''}"
+
+    def _str_ansi(self, target: _ANSITargetConfig, filters: str | list[str] | None = None) -> str:
+        title = self.title.source(target=target, filters=filters)
+        description = self.description.source(target=target, filters=filters) if self.description else ""
+        title_sgr = _sgr.element.inline(text=title, **target.field_list_title.dict)
+        if not description:
+            return title_sgr
+        description_sgr = _sgr.element.block(text=description, **target.field_list_description.dict)
+        indent = len(_sgr.remove_sequence(title_sgr)) + 2
+        description_indented = "\n".join(f"{' ' * indent}{line}" for line in description_sgr.splitlines()).strip()
+        return f"{title_sgr}: {description_indented}"
+
+
 
 
 class FieldList(Element):
@@ -704,22 +810,24 @@ class FieldList(Element):
         self.classes = classes or []
         return
 
-    def str(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> str:
-        target = self._resolve_target(target)
-        content = self.content.str(target=target, filters=filters)
+    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+        content = self.content.source(target=target, filters=filters)
         if (self.classes or self.name) and target.attrs_block:
             return attribute(
                 content=content,
                 block=True,
                 classes=self.classes,
                 name=self.name,
-            ).str(target=target, filters=filters)
+            ).source(target=target, filters=filters)
         if self.name and target.target_anchor:
             return target_anchor(
                 content=content,
                 name=self.name,
-            ).str(target=target, filters=filters)
+            ).source(target=target, filters=filters)
         return content
+
+    def _str_ansi(self, target: _ANSITargetConfig, filters: str | list[str] | None = None) -> str:
+        return self.content.source(target=target, filters=filters)
 
     def append(
         self,
@@ -753,7 +861,7 @@ class FrontMatter(Element):
         self.content = content or {}
         return
 
-    def str(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> str:
+    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
         if not self.content:
             return ""
         content = _ps.write.to_yaml_string(data=self.content).strip()
@@ -763,49 +871,71 @@ class FrontMatter(Element):
 class Heading(Element):
     def __init__(
         self,
-        level: Literal[1, 2, 3, 4, 5, 6],
         content: MDContainer,
+        level: Literal[1, 2, 3, 4, 5, 6] | Sequence[int] = 1,
+        explicit_number: bool = False,
         name: Stringable | None = None,
         classes: list[Stringable] | None = None,
         attrs: dict | None = None,
         container: Stringable | None = "div",
+        container_inline: Stringable | None = "span",
         attrs_container: dict | None = None,
         default_output_target: TargetConfigType = "sphinx",
     ):
         super().__init__(default_output_target=default_output_target)
-        self.level = level
+        self.level = list(level) if isinstance(level, Sequence) else [1] * level
         self.content = content
         self.name = name
         self.classes = classes or []
         self.attrs = attrs or {}
         self.container = container
+        self.container_inline = container_inline
         self.attrs_container = attrs_container or {}
+        self.explicit_number = explicit_number
         return
 
-    def str(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> str:
-        target = self._resolve_target(target)
-        content = self.content.str(target=target, filters=filters)
+    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+        content = self._make_content(self.content.source(target=target, filters=filters))
+        level = len(self.level)
         if not target.prefer_md:
+            attrs = {"class": self.classes, "id": self.name}
             h = _htmp.elementor.heading(
-                level=self.level,
+                level=level,
                 content=_htmp.elementor.markdown(content),
-                attrs=self.attrs | {"class": self.classes, "id": self.name},
-            ).str(indent=-1)
-            return self._wrap(content=h, container=self.container, attrs_container=self.attrs_container)
-        heading_str = f"{'#' * self.level} {content}"
+                attrs=self.attrs | attrs,
+            ).source(indent=-1) if level < 7 else content
+            return self._wrap(
+                content=h,
+                container=self.container if level < 7 else self.container_inline,
+                attrs_container=self.attrs_container,
+            )
+        if level > 6:
+            return f"**{content}**"
+        heading_str = f"{'#' * level} {content}"
         if (self.classes or self.name) and target.attrs_block:
             return attribute(
                 content=heading_str,
                 block=True,
                 classes=self.classes,
                 name=self.name,
-            ).str(target=target, filters=filters)
+            ).source(target=target, filters=filters)
         if self.name and target.target_anchor:
             return target_anchor(
                 content=heading_str,
                 name=self.name,
-            ).str(target=target, filters=filters)
+            ).source(target=target, filters=filters)
         return heading_str
+
+    def _str_ansi(self, target: _ANSITargetConfig, filters: str | list[str] | None = None) -> str:
+        content = self._make_content(self.content.source(target=target, filters=filters))
+        style = target.heading[min(len(self.level), len(target.heading)) - 1]
+        return _sgr.element.block(text=content, **style.dict)
+
+    def _make_content(self, content: str) -> str:
+        if not self.explicit_number:
+            return content
+        section_num = ".".join(str(num) for num in self.level)
+        return f"{section_num}. {content}"
 
 
 class HTML(Element):
@@ -825,9 +955,8 @@ class HTML(Element):
         self.inline = inline
         return
 
-    def str(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> str:
-        target = self._resolve_target(target)
-        content = self.content.str(target=target, filters=filters)
+    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+        content = self.content.source(target=target, filters=filters)
         error_msg = f"Element '{self.tag}' is not a valid HTML element."
         try:
             tag_func = getattr(_htmp.element, str(self.tag))
@@ -837,7 +966,7 @@ class HTML(Element):
             raise AttributeError(error_msg)
         if not self.inline:
             content = _htmp.elementor.markdown(content)
-        return tag_func(content, self.attrs).str(indent=-1)
+        return tag_func(content, self.attrs).source(indent=-1)
 
 
 class InlineImage(Element):
@@ -882,8 +1011,7 @@ class InlineImage(Element):
         self.attrs_container = attrs_container or {}
         return
 
-    def str(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> str:
-        target = self._resolve_target(target)
+    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
         img_attrs = {
             "src": self.src,
             "title": self.title,
@@ -929,9 +1057,8 @@ class Paragraph(Element):
         self.attrs_container = attrs_container or {}
         return
 
-    def str(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> str:
-        target = self._resolve_target(target)
-        content = self.content.str(target=target, filters=filters)
+    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+        content = self.content.source(target=target, filters=filters)
         if not content:
             return ""
         if not target.prefer_md:
@@ -939,7 +1066,7 @@ class Paragraph(Element):
                 _htmp.element.p(
                     parag.strip(),
                     self.attrs | {"class": self.classes, "id": self.name}
-                ).str(indent=3)
+                ).source(indent=3)
                 for parag in _re.split(r'\n\s*\n+', content)
             ]
             return self._wrap(
@@ -951,12 +1078,12 @@ class Paragraph(Element):
                 block=True,
                 classes=self.classes,
                 name=self.name,
-            ).str(target=target, filters=filters)
+            ).source(target=target, filters=filters)
         if self.name and target.target_anchor:
             return target_anchor(
                 content=content,
                 name=self.name,
-            ).str(target=target, filters=filters)
+            ).source(target=target, filters=filters)
         return content
 
 
@@ -985,10 +1112,9 @@ class TabItem(Element):
         self.classes_content = classes_content
         return
 
-    def str(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> str:
-        target = self._resolve_target(target)
-        title = self.title.str(target=target, filters=filters)
-        content = self.content.str(target=target, filters=filters)
+    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+        title = self.title.source(target=target, filters=filters)
+        content = self.content.source(target=target, filters=filters)
         options = {
             "selected": self.selected,
             "sync": self.sync,
@@ -1002,7 +1128,7 @@ class TabItem(Element):
             args=title,
             options=options,
             content=content,
-        ).str(target=target, filters=filters)
+        ).source(target=target, filters=filters)
 
     @property
     def code_fence_count(self):
@@ -1024,8 +1150,7 @@ class TabSet(Element):
         self.classes = classes or []
         return
 
-    def str(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> str:
-        target = self._resolve_target(target)
+    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
         options = {
             "sync-group": self.sync_group,
             "class": self.classes,
@@ -1034,7 +1159,7 @@ class TabSet(Element):
             name="tab-set",
             options=options,
             content=self.content,
-        ).str(target=target, filters=filters)
+        ).source(target=target, filters=filters)
 
     def append(
         self,
@@ -1082,9 +1207,8 @@ class TargetAnchor(Element):
         self.name = name
         return
 
-    def str(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> str:
-        target = self._resolve_target(target)
-        content = self.content.str(target=target, filters=filters) if isinstance(self.content, _MDCode) else str(self.content)
+    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+        content = self.content.source(target=target, filters=filters) if isinstance(self.content, _MDCode) else str(self.content)
         name = str(self.name)
         if not (target.target_anchor and name):
             return content
@@ -1109,8 +1233,8 @@ class ThematicBreak(Element):
         self.attrs_container = attrs_container or {}
         return
 
-    def str(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> str:
-        hr = _htmp.element.hr(self.attrs | {"class": self.classes, "id": self.name}).str(indent=-1)
+    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+        hr = _htmp.element.hr(self.attrs | {"class": self.classes, "id": self.name}).source(indent=-1)
         return self._wrap(content=hr, container=self.container, attrs_container=self.attrs_container)
 
 
@@ -1143,9 +1267,8 @@ class TocTree(Element):
         self.numbered = numbered
         return
 
-    def str(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> str:
-        target = self._resolve_target(target)
-        content = self.content.str(target=target, filters=filters)
+    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+        content = self.content.source(target=target, filters=filters)
         options = {
             "glob": self.glob,
             "caption": self.caption,
@@ -1162,7 +1285,38 @@ class TocTree(Element):
             args=None,
             options=options,
             content=content
-        ).str(target=target, filters=filters)
+        ).source(target=target, filters=filters)
+
+
+class Toggle(Element):
+
+    def __init__(
+        self,
+        content: MDContainer,
+        title: Stringable | None = None,
+        opened: bool = False,
+        attrs_details: dict | None = None,
+        attrs_summary: dict | None = None,
+        default_output_target: TargetConfigType = "sphinx",
+    ):
+        super().__init__(default_output_target=default_output_target)
+        self.content = content
+        self.title = title
+        self.attrs_details = attrs_details or {}
+        self.attrs_summary = attrs_summary or {}
+        self.opened = opened
+        return
+
+    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+        if target.directive_toggle:
+            return directive(
+                name="toggle",
+                options={"show": self.opened},
+                content=self.content,
+            ).source(target=target, filters=filters)
+        content= _htmp.elementor.markdown(self.content.source(target=target, filters=filters))
+        summary = _htmp.element.summary(self.title, self.attrs_summary)
+        return _htmp.element.details([summary, content], self.attrs_details).source(indent=-1)
 
 
 class OrderedList(Element):
@@ -1197,9 +1351,10 @@ class OrderedList(Element):
         self.attrs_li = attrs_li or {}
         return
 
-    def str(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> str:
-        target = self._resolve_target(target)
+    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
         items = self.content.elements(target=target, filters=filters, string=True)
+        if not items:
+            return ""
         if not target.prefer_md:
             attrs_ol = {
                            "class": self.classes,
@@ -1211,7 +1366,7 @@ class OrderedList(Element):
                 type=self.style,
                 attrs_li=self.attrs_li,
                 attrs_ol=attrs_ol,
-            ).str(indent=-1)
+            ).source(indent=-1)
         list_items = []
         start = self.start if self.start is not None else 1
         for idx, item in enumerate(items):
@@ -1230,12 +1385,12 @@ class OrderedList(Element):
                 classes=self.classes,
                 name=self.name,
                 attrs={"style": self.HTML_STYLE_TO_MYST[self.style]} if self.style != "1" else {},
-            ).str(target=target, filters=filters)
+            ).source(target=target, filters=filters)
         if self.name and target.target_anchor:
             return target_anchor(
                 content=list_str,
                 name=self.name,
-            ).str(target=target, filters=filters)
+            ).source(target=target, filters=filters)
         return list_str
 
 
@@ -1260,8 +1415,7 @@ class UnOrderedList(Element):
         self.attrs_li = attrs_li or {}
         return
 
-    def str(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> str:
-        target = self._resolve_target(target)
+    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
         items = self.content.elements(target=target, filters=filters, string=True)
         if not target.prefer_md:
             attrs_ul = {
@@ -1274,7 +1428,7 @@ class UnOrderedList(Element):
                 type=self.style,
                 attrs_li=self.attrs_li,
                 attrs_ul=attrs_ul,
-            ).str(indent=-1)
+            ).source(indent=-1)
 
         list_items = []
         for item in items:
@@ -1291,12 +1445,12 @@ class UnOrderedList(Element):
                 block=True,
                 classes=self.classes,
                 name=self.name,
-            ).str(target=target, filters=filters)
+            ).source(target=target, filters=filters)
         if self.name and target.target_anchor:
             return target_anchor(
                 content=list_str,
                 name=self.name,
-            ).str(target=target, filters=filters)
+            ).source(target=target, filters=filters)
         return list_str
 
 
@@ -1316,6 +1470,7 @@ def admonition(
     title: ContainerInputType | MDContainer | None = None,
     content: ContainerInputType | MDContainer | None = None,
     dropdown: bool = False,
+    opened: bool = False,
     classes: list[Stringable] | None = None,
     add_type_class: bool = True,
     name: Stringable | None = None,
@@ -1353,6 +1508,7 @@ def admonition(
         title=title,
         content=content,
         dropdown=dropdown,
+        opened=opened,
         classes=classes,
         add_type_class=add_type_class,
         name=name,
@@ -1832,6 +1988,7 @@ def code_block(
     force: bool = False,
     name: Stringable | None = None,
     classes: Stringable | list[Stringable] | None = None,
+    degrade_to_diff: bool = True,
     content_seperator: str = "\n",
     default_output_target: TargetConfigType = "sphinx",
 ) -> CodeBlock:
@@ -1872,8 +2029,21 @@ def code_block(
         force=force,
         name=name,
         classes=classes,
+        degrade_to_diff=degrade_to_diff,
         default_output_target=default_output_target,
     )
+
+
+def code_span(
+    content: Stringable,
+    language: Stringable | None = None,
+    attrs: dict | None = None,
+    default_output_target: TargetConfigType = "sphinx",
+) -> CodeSpan:
+    return CodeSpan(
+        content=content, language=language, attrs=attrs, default_output_target=default_output_target
+    )
+
 
 
 def directive(
@@ -1894,7 +2064,7 @@ def directive(
 def field_list_item(
     title: ContainerInputType | MDContainer | None = None,
     description: ContainerInputType | MDContainer | None = None,
-    indent: int = 4,
+    indent: int = 3,
     content_seperator_name: str = "",
     content_seperator_body: str = "\n\n",
     default_output_target: TargetConfigType = "sphinx",
@@ -1926,24 +2096,28 @@ def frontmatter(
 
 
 def heading(
-    level: Literal[1, 2, 3, 4, 5, 6],
     content: ContainerInputType | MDContainer | None = None,
+    level: Literal[1, 2, 3, 4, 5, 6] | Sequence[int] = 1,
+    explicit_number: bool = False,
     name: Stringable | None = None,
     classes: list[Stringable] | None = None,
     attrs: dict | None = None,
     container: Stringable | None = "div",
+    container_inline: Stringable | None = "span",
     attrs_container: dict | None = None,
     content_seperator: str = "",
     default_output_target: TargetConfigType = "sphinx",
 ) -> Heading:
     content = _mdit.container(content, content_seperator=content_seperator)
     return Heading(
-        level=level,
         content=content,
+        level=level,
+        explicit_number=explicit_number,
         name=name,
         classes=classes,
         attrs=attrs,
         container=container,
+        container_inline=container_inline,
         attrs_container=attrs_container,
         default_output_target=default_output_target,
     )
@@ -2129,6 +2303,27 @@ def paragraph(
 
 
 
+def spacer(
+    height: Stringable | None = None,
+    width: Stringable | None = None,
+    align: Literal["left", "center", "right", "top", "middle", "bottom"] | None = None,
+    attrs_img: dict | None = None,
+    container: Stringable | None = "span",
+    attrs_container: dict | None = None,
+    default_output_target: TargetConfigType = "github",
+):
+    return inline_image(
+        src="docs/source/_static/img/spacer.svg",  #TODO: Add permanent link to spacer image
+        height=height,
+        width=width,
+        align=align,
+        attrs_img=attrs_img,
+        container=container,
+        attrs_container=attrs_container,
+        default_output_target=default_output_target,
+    )
+
+
 def tab_item(
     title: ContainerInputType | MDContainer | None = None,
     content: ContainerInputType | MDContainer | None = None,
@@ -2269,6 +2464,27 @@ def toctree(
         default_output_target=default_output_target,
     )
 
+def toggle(
+    title: ContainerInputType | MDContainer | None = None,
+    content: ContainerInputType | MDContainer | None = None,
+    opened: bool = False,
+    attrs_details: dict | None = None,
+    attrs_summary: dict | None = None,
+    content_seperator_title: str = "",
+    content_seperator_content: str = "\n\n",
+    default_output_target: TargetConfigType = "sphinx",
+) -> Toggle:
+    title = _mdit.container(title, content_seperator=content_seperator_title)
+    content = _mdit.container(content, content_seperator=content_seperator_content)
+    return Toggle(
+        title=title,
+        content=content,
+        opened=opened,
+        attrs_details=attrs_details,
+        attrs_summary=attrs_summary,
+        default_output_target=default_output_target,
+    )
+
 
 def ordered_list(
     content: ContainerInputType | MDContainer | None = None,
@@ -2356,3 +2572,219 @@ def _make_badge_gradients(inputs: dict, count_items: int):
             hex_colors = [color.css_hex() for color in grad_gen(**grad_def)]
             gradient[color_key] = hex_colors
     return gradient
+
+
+
+
+
+# def continuous_integration(self, data):
+#     def github(filename, **kwargs):
+#         badge = self._github_badges.workflow_status(filename=filename, **kwargs)
+#         return badge
+#
+#     def readthedocs(rtd_name, rtd_version=None, **kwargs):
+#         badge = bdg.shields.build_read_the_docs(project=rtd_name, version=rtd_version, **kwargs)
+#         return badge
+#
+#     def codecov(**kwargs):
+#         badge = bdg.shields.coverage_codecov(
+#             user=self.github["user"],
+#             repo=self.github["repo"],
+#             branch=self.github["branch"],
+#             **kwargs,
+#         )
+#         return badge
+#
+#     func_map = {"github": github, "readthedocs": readthedocs, "codecov": codecov}
+#
+#     badges = []
+#     for test in copy.deepcopy(data["args"]["tests"]):
+#         func = test.pop("type")
+#         if "style" in test:
+#             style = test.pop("style")
+#             test = style | test
+#         badges.append(func_map[func](**test))
+#
+#     div = html.DIV(
+#         align=data.get("align") or "center",
+#         content=[
+#             self._marker(start="Continuous Integration"),
+#             self.heading(data=data["heading"]),
+#             *badges,
+#             self._marker(end="Continuous Integration"),
+#         ],
+#     )
+#     return div
+#
+#
+# def activity(self, data):
+#     pr_button = bdg.shields.static(text="Pull Requests", style="for-the-badge", color="444")
+#
+#     prs = []
+#     issues = []
+#     for label in (None, "bug", "enhancement", "documentation"):
+#         prs.append(self._github_badges.pr_issue(label=label, raw=True, logo=None))
+#         issues.append(self._github_badges.pr_issue(label=label, raw=True, pr=False, logo=None))
+#
+#     prs_div = html.DIV(align="right", content=html.ElementCollection(prs, "\n<br>\n"))
+#     iss_div = html.DIV(align="right", content=html.ElementCollection(issues, "\n<br>\n"))
+#
+#     table = html.TABLE(
+#         content=[
+#             html.TR(
+#                 content=[
+#                     html.TD(
+#                         content=html.ElementCollection([pr_button, *prs], seperator="<br>"),
+#                         align="center",
+#                         valign="top",
+#                     ),
+#                     html.TD(
+#                         content=html.ElementCollection(
+#                             [
+#                                 bdg.shields.static(
+#                                     text="Milestones",
+#                                     style="for-the-badge",
+#                                     color="444",
+#                                 ),
+#                                 self._github_badges.milestones(
+#                                     state="both",
+#                                     style="flat-square",
+#                                     logo=None,
+#                                     text="Total",
+#                                 ),
+#                                 "<br>",
+#                                 bdg.shields.static(
+#                                     text="Commits",
+#                                     style="for-the-badge",
+#                                     color="444",
+#                                 ),
+#                                 self._github_badges.last_commit(logo=None),
+#                                 self._github_badges.commits_since(logo=None),
+#                                 self._github_badges.commit_activity(),
+#                             ],
+#                             seperator="<br>",
+#                         ),
+#                         align="center",
+#                         valign="top",
+#                     ),
+#                     html.TD(
+#                         content=html.ElementCollection(
+#                             [
+#                                 bdg.shields.static(
+#                                     text="Issues",
+#                                     style="for-the-badge",
+#                                     logo="github",
+#                                     color="444",
+#                                 ),
+#                                 *issues,
+#                             ],
+#                             seperator="<br>",
+#                         ),
+#                         align="center",
+#                         valign="top",
+#                     ),
+#                 ]
+#             )
+#         ]
+#     )
+#
+#     div = html.DIV(
+#         align=data.get("align") or "center",
+#         content=[
+#             self._marker(start="Activity"),
+#             self.heading(data=data["heading"]),
+#             table,
+#             self._marker(end="Activity"),
+#         ],
+#     )
+#     return div
+#
+#
+# def pr_issue_badge(
+#     self,
+#     pr: bool = True,
+#     status: Literal["open", "closed", "both"] = "both",
+#     label: str | None = None,
+#     raw: bool = False,
+#     **kwargs,
+# ) -> bdg.Badge:
+#     """Number of pull requests or issues on GitHub.
+#
+#     Parameters
+#     ----------
+#     pr : bool, default: True
+#         Whether to query pull requests (True, default) or issues (False).
+#     closed : bool, default: False
+#         Whether to query closed (True) or open (False, default) issues/pull requests.
+#     label : str, optional
+#         A specific GitHub label to query.
+#     raw : bool, default: False
+#         Display 'open'/'close' after the number (False) or only display the number (True).
+#     """
+#
+#     def get_path_link(closed):
+#         path = self._url / (
+#             f"issues{'-pr' if pr else ''}{'-closed' if closed else ''}"
+#             f"{'-raw' if raw else ''}/{self._address}{f'/{label}' if label else ''}"
+#         )
+#         link = self._repo_link.pr_issues(pr=pr, closed=closed, label=label)
+#         return path, link
+#
+#     def half_badge(closed: bool):
+#         path, link = get_path_link(closed=closed)
+#         if "link" not in args:
+#             args["link"] = link
+#         badge = ShieldsBadge(path=path, **args)
+#         badge.html_syntax = ""
+#         if closed:
+#             badge.color = {"right": "00802b"}
+#             badge.text = ""
+#             badge.logo = None
+#         else:
+#             badge.color = {"right": "AF1F10"}
+#         return badge
+#
+#     desc = {
+#         None: {True: "pull requests in total", False: "issues in total"},
+#         "bug": {True: "pull requests related to a bug-fix", False: "bug-related issues"},
+#         "enhancement": {
+#             True: "pull requests related to new features and enhancements",
+#             False: "feature and enhancement requests",
+#         },
+#         "documentation": {
+#             True: "pull requests related to the documentation",
+#             False: "issues related to the documentation",
+#         },
+#     }
+#     text = {
+#         None: {True: "Total", False: "Total"},
+#         "bug": {True: "Bug Fix", False: "Bug Report"},
+#         "enhancement": {True: "Enhancement", False: "Feature Request"},
+#         "documentation": {True: "Docs", False: "Docs"},
+#     }
+#
+#     args = self.args | kwargs
+#     if "text" not in args:
+#         args["text"] = text[label][pr]
+#     if "title" not in args:
+#         args["title"] = (
+#             f"Number of {status if status != 'both' else 'open (red) and closed (green)'} "
+#             f"{desc[label][pr]}. "
+#             f"Click {'on the red and green tags' if status == 'both' else ''} to see the details of "
+#             f"the respective {'pull requests' if pr else 'issues'} in the "
+#             f"'{'Pull requests' if pr else 'Issues'}' section of the repository."
+#         )
+#     if "style" not in args and status == "both":
+#         args["style"] = "flat-square"
+#     if status not in ("open", "closed", "both"):
+#         raise ValueError()
+#     if status != "both":
+#         path, link = get_path_link(closed=status == "closed")
+#         if "link" not in args:
+#             args["link"] = link
+#         return ShieldsBadge(path=path, **args)
+#     return html.element.ElementCollection(
+#         [half_badge(closed) for closed in (False, True)], seperator=""
+#     )
+#
+#

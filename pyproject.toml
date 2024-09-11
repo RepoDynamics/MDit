@@ -17,15 +17,29 @@ namespaces = true
 # ----------------------------------------- Project Metadata -------------------------------------
 #
 [project]
-version = "0.0.0.dev0"
+version = "0.0.0.dev1"
 name = "MDit"
 requires-python = ">=3.10"
 dependencies = [
-    "IPython",
-    "PyProtocol",
+    "sphinx < 8",
+    "myst-parser > 3, < 4",
+    "pydata-sphinx-theme",
+    "sphinx-togglebutton",
+    "sphinx-design",
     "markdown-it-py",
     "mdit-py-plugins",
     "linkify-it-py",
     "readme-renderer",
     "cmarkgfm",
+    "zundler",
+    "PkgData",
+    "PySerials",
+    "PyLinks",
+    "PyBadger",
+    "PyColorIt",
+    "IPython",
+    "PyProtocol",
+    "HTMP",
+    "ansi-sgr",
+
 ]

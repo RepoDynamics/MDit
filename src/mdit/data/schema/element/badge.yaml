@@ -1,0 +1,83 @@
+$id: https://docsman.repodynamics.com/schema/element/badge
+$schema: https://json-schema.org/draft/2020-12/schema
+title: Badge Creation Parameters
+description: Input parameters for creating a badge.
+type: object
+additionalProperties: false
+required: [ platform, service ]
+properties:
+  platform:
+    title: Badge Creation Platform
+    description: Name of the platform used to create the badge.
+    type: string
+    enum: [ pepy, shields ]
+    default: shields
+  service:
+    title: Badge Creation Service
+    description: Name of the service used to create the badge.
+    type: string
+    default: generic
+  endpoint:
+    title: Badge Creation Endpoint
+    description: Name of the endpoint for the badge creation service.
+    type: string
+  href:
+    title: Badge Link
+    description: URL to link to when the badge is clicked.
+    type: string
+  title:
+    title: HTML title
+    type: string
+  args:
+    title: Badge Creation Arguments
+    description: Arguments for creating the badge.
+    type: object
+  params_light:
+    title: Light Badge Parameters
+    description: Styling parameters for the light version of the badge.
+    type: object
+  params_dark:
+    title: Dark Badge Parameters
+    description: Styling parameters for the dark version of the badge.
+    type: object
+  attrs_img:
+    title: Image Attributes
+    description: Attributes for the HTML `<img>` element.
+    type: object
+  attrs_a:
+    title: Anchor Attributes
+    description: Attributes for the HTML `<a>` element.
+    type: object
+  attrs_picture:
+    title: Picture Attributes
+    description: Attributes for the HTML `<picture>` element.
+    type: object
+  attrs_source_light:
+    title: Light Source Attributes
+    description: Attributes for the HTML `<source>` element for the light version of the badge.
+    type: object
+  attrs_source_dark:
+    title: Dark Source Attributes
+    description: Attributes for the HTML `<source>` element for the dark version of the badge.
+    type: object
+  default_light:
+    title: Default Theme
+    description: |
+      Whether the light version (when `true`) or the dark version (when `false`) is the default theme.
+    type: boolean
+    default: true
+  merge_params:
+    title: Merge Parameters
+    description: |
+      Whether to complement the light and dark badge parameters with each other.
+      If true, for each theme, missing parameters will be filled
+      with the corresponding parameter from the other theme, if available.
+    type: boolean
+    default: true
+  use_defaults:
+    title: Use Defaults
+    description: |
+      Whether to use default values for missing badge parameters and HTML attributes.
+      If true, missing items will be filled with default values, when available.
+    type: boolean
+    default: true

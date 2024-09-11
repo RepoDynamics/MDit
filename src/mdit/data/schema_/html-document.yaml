@@ -1,0 +1,33 @@
+$id: https://docsman.repodynamics.com/schema/html-document
+$schema: https://json-schema.org/draft/2020-12/schema
+title: HTML Document
+description: Parameters for creating an HTML document.
+type: object
+additionalProperties: false
+required: [ type ]
+properties:
+  type:
+    title: Document Type
+    description: Type of the document.
+    type: string
+    const: html
+  body:
+    title: Document Body
+    description: Contents of the `<body>` element.
+    type: array
+  head:
+    title: Document Head
+    description: Contents of the `<head>` element.
+    type: array
+  html_attrs:
+    title: HTML Attributes
+    description: Attributes for the `<html>` element.
+    type: object
+  head_attrs:
+    title: Head Attributes
+    description: Attributes for the `<head>` element.
+    type: object
+  body_attrs:
+    title: Body Attributes
+    description: Attributes for the `<body>` element.
+    type: object

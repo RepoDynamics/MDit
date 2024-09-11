@@ -1,0 +1,19 @@
+$id: https://docsman.repodynamics.com/schema
+description: Contents of a document.
+type: array
+items:
+  anyOf:
+    - type: string
+    - type: object
+      required: [ class ]
+      properties:
+        class:
+          type: string
+        align_span:
+          type: string
+        align_div:
+          type: string
+        attrs_span:
+          type: object
+        attrs_div:
+          type: object
