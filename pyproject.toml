@@ -38,8 +38,9 @@ dependencies = [
     "PyBadger",
     "PyColorIt",
     "IPython",
+    "jupyterlab_myst",
     "PyProtocol",
     "HTMP",
     "ansi-sgr",
-
+    "pygments",
 ]

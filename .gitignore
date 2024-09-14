@@ -74,7 +74,6 @@ docs/website/source/api/_autosummary
 
 # PyBuilder
 .pybuilder/
-target/
 
 # Jupyter Notebook
 .ipynb_checkpoints

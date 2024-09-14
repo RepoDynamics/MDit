@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING as _TYPE_CHECKING
+from typing import TYPE_CHECKING as _TYPE_CHECKING, Sequence as _Sequence
 from types import FunctionType as _FunctionType
 from contextlib import contextmanager as _contextmanager
 import re as _re
@@ -9,49 +9,33 @@ import htmp as _htmp
 import pyserials as _ps
 import pybadger as _bdg
 import pycolorit as _pcit
-import ansi_sgr as _sgr
+import rich
+import rich.syntax
+import rich.panel
 
 import mdit as _mdit
-from mdit.protocol import MDCode as _MDCode, TargetConfig as _TargetConfig, \
-    ANSITargetConfig as _ANSITargetConfig
-from mdit import display as _display, target as _target
+import rich.rule
+from mdit.protocol import MDITRenderable as _MDITRenderable
+
+from mdit.renderable import Renderable as _Renderable
+
 
 if _TYPE_CHECKING:
     from typing import Literal, Sequence
-    from mdit import MDContainer, BlockMDContainer, InlineMDContainer
-    from mdit.protocol import Stringable, ContainerInputType, TargetConfigType, ANSIInlineStyle, ANSIBlockStyle
+    from rich.console import RenderableType
+    from rich.panel import Panel
+    from mdit import MDContainer
+    from mdit.protocol import MDTargetConfig, RichTargetConfig, Stringable, ContainerInputType, TargetConfigs, HTMLAttrsType
 
 
-class Element:
-
-    _IS_MD_CODE = True
-    _TARGET_CONFIG = {
-        "sphinx": _target.sphinx(),
-        "github": _target.github(),
-        "pypi": _target.pypi(),
-        "ansi": _target.ansi(),
-    }
+class Element(_Renderable):
 
     def __init__(
         self,
-        default_output_target: TargetConfigType = "sphinx",
+        target_configs: TargetConfigs = None,
+        target_default: str = "sphinx",
     ):
-        self.default_output_target = default_output_target
-
-    def source(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> str:
-        target = self._resolve_target(target)
-        if isinstance(target, _ANSITargetConfig):
-            return self._str_ansi(target=target, filters=filters)
-        return self._str_md(target=target, filters=filters)
-
-    def display(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> None:
-        """Display the element in an IPython notebook."""
-        target = self._resolve_target(target)
-        output_str = self.source(target=target, filters=filters)
-        if isinstance(target, _ANSITargetConfig):
-            print(output_str)
-        else:
-            _display.ipython(output_str)
+        super().__init__(target_configs=target_configs, target_default=target_default)
         return
 
     @_contextmanager
@@ -72,18 +56,8 @@ class Element:
             for key in new_attrs:
                 delattr(self, key)
 
-    @property
-    def code_fence_count(self) -> int:
-        return 0
-
     def __str__(self):
         return self.source()
-
-    def _resolve_target(self, target: TargetConfigType | None = None) -> _TargetConfig:
-        target = target or self.default_output_target
-        if isinstance(target, (_TargetConfig, _ANSITargetConfig)):
-            return target
-        return self._TARGET_CONFIG[target]
 
     @staticmethod
     def _wrap(
@@ -95,16 +69,6 @@ class Element:
             return content
         container_func = getattr(_htmp.element, str(container))
         return container_func(_htmp.elementor.markdown(content), attrs_container).source(indent=-1)
-
-    def _str_ansi(self, target: _ANSITargetConfig, filters: str | list[str] | None = None) -> str:
-        raise NotImplementedError
-
-    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
-        raise NotImplementedError
-
-    def _format_inline_ansi(self, text: str, style: ANSIInlineStyle):
-        text_full = f"{style.char_left}{text}{style.char_right}"
-
 
 
 class Admonition(Element):
@@ -149,8 +113,9 @@ class Admonition(Element):
             "danger",
             "error"
         ],
-        title: Stringable,
         content: MDContainer,
+        title: Stringable = "",
+        footer: Stringable = "",
         dropdown: bool = False,
         opened: bool = True,
         classes: list[Stringable] | None = None,
@@ -160,12 +125,13 @@ class Admonition(Element):
         title_bold: bool = True,
         title_tight: bool = True,
         emoji: str | None = None,
-        default_output_target: TargetConfigType = "sphinx",
+        target_default: TargetConfigs = "sphinx",
     ):
-        super().__init__(default_output_target=default_output_target)
+        super().__init__(target_default=target_default)
         self.type = type
         self.title = title
         self.content = content
+        self.footer = footer
         self.dropdown = dropdown
         self.opened = opened
         self.classes = classes or []
@@ -177,25 +143,20 @@ class Admonition(Element):
         self.emoji = emoji or self.MYST_TO_EMOJI[type]
         return
 
-    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+    def _source_rich(self, target: RichTargetConfig, filters: str | list[str] | None = None) -> Panel:
+        content = self.content.source(target=target, filters=filters).strip()
+        return target.admonition[self.type].make(content=content, title=str(self.title), subtitle=str(self.footer))
+
+    def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
+        content = self.content.source(target=target, filters=filters).strip()
+        content_full = f"{content}\n\n---\n\n{self.footer}".strip()
         if target.directive_admo:
-            return self._str_admo(target=target, filters=filters)
+            return self._str_admo(content=content_full, target=target, filters=filters)
         if target.alerts:
-            return self._str_alert(target=target, filters=filters)
-        return self._str_blockquoute(target=target, filters=filters)
+            return self._str_alert(content=content_full, target=target, filters=filters)
+        return self._str_blockquoute(content=content_full, target=target, filters=filters)
 
-    def _str_ansi(self, target: _ANSITargetConfig, filters: str | list[str] | None = None) -> str:
-        title = str(self.title)
-        content = self.content.source(target=target, filters=filters)
-        config = getattr(target, f"admonition_{self.type}")
-        return _sgr.element.admonition(title=title, text=content, **config.dict)
-
-
-    @property
-    def code_fence_count(self) -> int:
-        return max(self.content.code_fence_count, 2) + 1
-
-    def _str_admo(self, target: TargetConfigType, filters: str | list[str] | None = None):
+    def _str_admo(self, content: str, target: TargetConfigs, filters: str | list[str] | None = None):
         classes = []
         if self.add_type_class:
             classes.append(self.type)
@@ -210,14 +171,13 @@ class Admonition(Element):
             name="admonition",
             args=self.title,
             options=options,
-            content=self.content,
+            content=content,
         ).source(target=target, filters=filters)
 
-    def _str_alert(self, target: TargetConfigType, filters: str | list[str] | None = None):
+    def _str_alert(self, content: str, target: TargetConfigs, filters: str | list[str] | None = None):
         lines = [f"[!{self.type_github.upper()}]"]
         new_target = target.copy()
         new_target.alerts = False  # Alerts cannot contain other alerts
-        content = self.content.source(target=new_target, filters=filters)
         title = str(self.title)
         if self.title_bold:
             title = _htmp.element.strong(title)
@@ -235,9 +195,8 @@ class Admonition(Element):
             lines.extend(content.splitlines())
         return "\n".join(f"> {line}" for line in lines)
 
-    def _str_blockquoute(self, target: TargetConfigType, filters: str | list[str] | None = None):
+    def _str_blockquoute(self, content: str, target: TargetConfigs, filters: str | list[str] | None = None):
         lines = []
-        content = self.content.source(target=target, filters=filters)
         title = str(self.title)
         if self.title_bold:
             title = _htmp.element.strong(title)
@@ -256,20 +215,24 @@ class Admonition(Element):
             lines.extend(content.splitlines())
         return "\n".join(f"> {line}" for line in lines)
 
+    @property
+    def code_fence_count(self) -> int:
+        return max(self.content.code_fence_count, 2) + 1
+
 
 class Attribute(Element):
 
     def __init__(
         self,
-        content: _MDCode | Stringable,
+        content: _MDITRenderable | Stringable,
         block: bool,
         classes: list[Stringable] | Stringable | None = None,
         name: Stringable | None = None,
         attrs: dict | None = None,
         comment: Stringable | None = None,
-        default_output_target: TargetConfigType = "sphinx",
+        target_default: TargetConfigs = "sphinx",
     ):
-        super().__init__(default_output_target=default_output_target)
+        super().__init__(target_default=target_default)
         self.content = content
         self.block = block
         self.classes = classes
@@ -278,8 +241,10 @@ class Attribute(Element):
         self.comment = comment
         return
 
-    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
-        content = self.content.source(target=target, filters=filters) if isinstance(self.content, _MDCode) else str(self.content)
+    def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
+        content = self.content.source(
+            target=target, filters=filters
+        ) if isinstance(self.content, _MDITRenderable) else str(self.content)
         if not (target.attrs_block if self.block else target.attrs_inline):
             return content
         attrs = []
@@ -302,6 +267,11 @@ class Attribute(Element):
         if self.block:
             return f"{attributor}\n{content.lstrip()}"
         return f"[{content.strip()}]{attributor}"
+
+    def _source_rich(self, target: RichTargetConfig, filters: str | list[str] | None = None) -> RenderableType:
+        return self.content.source(
+            target=target, filters=filters
+        ) if isinstance(self.content, _MDITRenderable) else str(self.content)
 
 
 class BlockImage(Element):
@@ -332,9 +302,9 @@ class BlockImage(Element):
         attrs_a: dict | None = None,
         container: Stringable | None = "div",
         attrs_container: dict | None = None,
-        default_output_target: TargetConfigType = "sphinx",
+        target_default: TargetConfigs = "sphinx",
     ):
-        super().__init__(default_output_target=default_output_target)
+        super().__init__(target_default=target_default)
         self.src = src
         self.src_dark = src_dark
         self.title = title
@@ -362,7 +332,7 @@ class BlockImage(Element):
         self.attrs_container = attrs_container or {}
         return
 
-    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+    def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
         target = self._resolve_target(target)
         if target.directive_image or target.directive_figure:
             return self._str_directive(target=target, filters=filters)
@@ -404,7 +374,7 @@ class BlockImage(Element):
         }
         return img_attrs
 
-    def _str_directive(self, target: TargetConfigType, filters: str | list[str] | None = None):
+    def _str_directive(self, target: TargetConfigs, filters: str | list[str] | None = None):
         options = self._make_img_attrs() | {
             "scale": self.scale,
             "align": self.align,
@@ -456,9 +426,9 @@ class BlockQuote(Element):
         attrs_cite: dict | None = None,
         container: Stringable | None = "div",
         attrs_container: dict | None = None,
-        default_output_target: TargetConfigType = "sphinx",
+        target_default: TargetConfigs = "sphinx",
     ):
-        super().__init__(default_output_target=default_output_target)
+        super().__init__(target_default=target_default)
         self.content = content
         self.cite = cite
         self.name = name
@@ -469,7 +439,7 @@ class BlockQuote(Element):
         self.attrs_container = attrs_container or {}
         return
 
-    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+    def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
 
         def make_md_blockquote(lines: list[str]) -> str:
             return "\n".join(f"> {line}" for line in lines)
@@ -477,7 +447,7 @@ class BlockQuote(Element):
         target = self._resolve_target(target)
         content = self.content.source(target=target, filters=filters)
         cite = self.cite.source(target=target, filters=filters) if self.cite else None
-        cite_line = f"&mdash;{cite}"
+        cite_line = f"—{cite}"
         if not (content or cite):
             return ""
         if not target.prefer_md:
@@ -538,9 +508,9 @@ class Card(Element):
         classes_title: list[str] | None = None,
         classes_img_top: list[str] | None = None,
         classes_img_bottom: list[str] | None = None,
-        default_output_target: TargetConfigType = "sphinx",
+        target_default: TargetConfigs = "sphinx",
     ):
-        super().__init__(default_output_target=default_output_target)
+        super().__init__(target_default=target_default)
         self.header = header
         self.title = title
         self.body = body
@@ -565,7 +535,7 @@ class Card(Element):
         self.classes_img_bottom = classes_img_bottom or []
         return
 
-    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+    def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
         content = []
         if self.header:
             header = self.header.source(target=target, filters=filters)
@@ -608,7 +578,7 @@ class CodeBlock(Element):
 
     def __init__(
         self,
-        content: MDContainer,
+        content: Stringable,
         language: Stringable | None = None,
         caption: Stringable | None = None,
         line_num: bool = False,
@@ -618,9 +588,9 @@ class CodeBlock(Element):
         name: Stringable | None = None,
         classes: Stringable | list[Stringable] | None = None,
         degrade_to_diff: bool = True,
-        default_output_target: TargetConfigType = "sphinx",
+        target_default: TargetConfigs = "sphinx",
     ):
-        super().__init__(default_output_target=default_output_target)
+        super().__init__(target_default=target_default)
         self.content = content
         self.language = language
         self.caption = caption
@@ -633,7 +603,7 @@ class CodeBlock(Element):
         self.degrade_to_diff = degrade_to_diff
         return
 
-    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+    def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
         if target.directive_code:
             options = {
                 "caption": self.caption,
@@ -651,7 +621,7 @@ class CodeBlock(Element):
                 content=self.content,
             ).source(target=target, filters=filters)
         fence = target.fence * self.code_fence_count
-        content = self.content.source(target=target, filters=filters)
+        content = str(self.content)
         if self.emphasize_lines and self.degrade_to_diff:
             language = "diff"
             content_lines = content.splitlines()
@@ -667,20 +637,20 @@ class CodeBlock(Element):
             return f"**{self.caption}**\n{block}"
         return block
 
-    def _str_ansi(self, target: _ANSITargetConfig, filters: str | list[str] | None = None) -> str:
-        code = self.content.source(target=target, filters=filters)
-        return _sgr.element.code_block(
-            title=self.caption or "Code",
-            code=code,
-            line_num=self.line_num,
-            line_num_start=self.line_num_start or 1,
-            emphasize_lines=self.emphasize_lines,
-            **target.code_block.dict
+    def _source_rich(self, target: RichTargetConfig, filters: str | list[str] | None = None) -> rich.panel.Panel:
+        return target.code_block.make(
+            code=str(self.content).strip(),
+            lexer=str(self.language) if self.language else None,
+            title=str(self.caption) if self.caption else None,
+            subtitle=str(self.language) if self.language else None,
+            line_numbers=self.line_num,
+            start_line=self.line_num_start or 1,
+            highlight_lines=set(self.emphasize_lines) or None,
         )
 
     @property
     def code_fence_count(self):
-        return max(self.content.code_fence_count, 2) + 1
+        return max(self._count_code_fence(str(self.content)), 2) + 1
 
 
 class CodeSpan(Element):
@@ -690,21 +660,21 @@ class CodeSpan(Element):
         content: Stringable,
         language: Stringable | None = None,
         attrs: dict | None = None,
-        default_output_target: TargetConfigType = "sphinx",
+        target_default: TargetConfigs = "sphinx",
     ):
-        super().__init__(default_output_target=default_output_target)
+        super().__init__(target_default=target_default)
         self.content = content
         self.language = language
         self.attrs = attrs or {}
         return
 
-    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+    def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
         if not target.prefer_md:
             return _htmp.element.code(self.content, self.attrs).source(indent=-1)
         return f"`{self.content}`"
 
-    def _str_ansi(self, target: _ANSITargetConfig, filters: str | list[str] | None = None) -> str:
-        return _sgr.element.inline(text=self.content, **target.code_span.dict)
+    def _source_rich(self, target: RichTargetConfig, filters: str | list[str] | None = None) -> RenderableType:
+        return target.code_span.make(str(self.content))
 
 
 class Directive(Element):
@@ -715,9 +685,9 @@ class Directive(Element):
         args: MDContainer | None = None,
         options: dict[Stringable, Stringable | list[Stringable] | None] | None = None,
         content: MDContainer | None = None,
-        default_output_target: TargetConfigType = "sphinx",
+        target_default: TargetConfigs = "sphinx",
     ):
-        super().__init__(default_output_target=default_output_target)
+        super().__init__(target_default=target_default)
         self.name = name
         self.args = args
         self.options = options or {}
@@ -728,7 +698,7 @@ class Directive(Element):
     def code_fence_count(self) -> int:
         return max(self.content.code_fence_count, 2) + 1
 
-    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+    def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
 
         def options():
             if not self.options:
@@ -764,15 +734,15 @@ class FieldListItem(Element):
         title: MDContainer,
         description: MDContainer | None = None,
         indent: int = 3,
-        default_output_target: TargetConfigType = "sphinx",
+        target_default: TargetConfigs = "sphinx",
     ):
-        super().__init__(default_output_target=default_output_target)
+        super().__init__(target_default=target_default)
         self.title = title
         self.description = description
         self.indent = indent
         return
 
-    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+    def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
         title = self.title.source(target=target, filters=filters)
         description = self.description.source(target=target, filters=filters) if self.description else ""
         indent = " " * (self.indent if target.field_list else 2)  # 2 for normal list
@@ -781,18 +751,12 @@ class FieldListItem(Element):
             return f":{title}: {description}".strip()
         return f"- **{title}**{f": {description_indented}" if description_indented else ''}"
 
-    def _str_ansi(self, target: _ANSITargetConfig, filters: str | list[str] | None = None) -> str:
-        title = self.title.source(target=target, filters=filters)
-        description = self.description.source(target=target, filters=filters) if self.description else ""
-        title_sgr = _sgr.element.inline(text=title, **target.field_list_title.dict)
-        if not description:
-            return title_sgr
-        description_sgr = _sgr.element.block(text=description, **target.field_list_description.dict)
-        indent = len(_sgr.remove_sequence(title_sgr)) + 2
-        description_indented = "\n".join(f"{' ' * indent}{line}" for line in description_sgr.splitlines()).strip()
-        return f"{title_sgr}: {description_indented}"
-
-
+    def _source_rich(self, target: RichTargetConfig, filters: str | list[str] | None = None) -> RenderableType:
+        item = (
+            self.title.source(target=target, filters=filters),
+            self.description.source(target=target, filters=filters) if self.description else ""
+        )
+        return target.field_list.make([item])
 
 
 class FieldList(Element):
@@ -802,15 +766,15 @@ class FieldList(Element):
         content: MDContainer,
         name: Stringable | None = None,
         classes: list[Stringable] | None = None,
-        default_output_target: TargetConfigType = "sphinx",
+        target_default: TargetConfigs = "sphinx",
     ):
-        super().__init__(default_output_target=default_output_target)
+        super().__init__(target_default=target_default)
         self.content = content
         self.name = name
         self.classes = classes or []
         return
 
-    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+    def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
         content = self.content.source(target=target, filters=filters)
         if (self.classes or self.name) and target.attrs_block:
             return attribute(
@@ -826,8 +790,14 @@ class FieldList(Element):
             ).source(target=target, filters=filters)
         return content
 
-    def _str_ansi(self, target: _ANSITargetConfig, filters: str | list[str] | None = None) -> str:
-        return self.content.source(target=target, filters=filters)
+    def _source_rich(self, target: RichTargetConfig, filters: str | list[str] | None = None) -> RenderableType:
+        items = [
+            (
+                item.title.source(target=target, filters=filters),
+                item.description.source(target=target, filters=filters) if item.description else ""
+            ) for item in self.content.elements(target=target, filters=filters)
+        ]
+        return target.field_list.make(items)
 
     def append(
         self,
@@ -855,13 +825,13 @@ class FrontMatter(Element):
     def __init__(
         self,
         content: dict | None = None,
-        default_output_target: TargetConfigType = "sphinx",
+        target_default: TargetConfigs = "sphinx",
     ):
-        super().__init__(default_output_target=default_output_target)
+        super().__init__(target_default=target_default)
         self.content = content or {}
         return
 
-    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+    def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
         if not self.content:
             return ""
         content = _ps.write.to_yaml_string(data=self.content).strip()
@@ -880,10 +850,10 @@ class Heading(Element):
         container: Stringable | None = "div",
         container_inline: Stringable | None = "span",
         attrs_container: dict | None = None,
-        default_output_target: TargetConfigType = "sphinx",
+        target_default: TargetConfigs = "sphinx",
     ):
-        super().__init__(default_output_target=default_output_target)
-        self.level = list(level) if isinstance(level, Sequence) else [1] * level
+        super().__init__(target_default=target_default)
+        self.level = list(level) if isinstance(level, _Sequence) else [1] * level
         self.content = content
         self.name = name
         self.classes = classes or []
@@ -894,7 +864,7 @@ class Heading(Element):
         self.explicit_number = explicit_number
         return
 
-    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+    def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
         content = self._make_content(self.content.source(target=target, filters=filters))
         level = len(self.level)
         if not target.prefer_md:
@@ -926,10 +896,10 @@ class Heading(Element):
             ).source(target=target, filters=filters)
         return heading_str
 
-    def _str_ansi(self, target: _ANSITargetConfig, filters: str | list[str] | None = None) -> str:
+    def _source_rich(self, target: RichTargetConfig, filters: str | list[str] | None = None) -> RenderableType:
         content = self._make_content(self.content.source(target=target, filters=filters))
         style = target.heading[min(len(self.level), len(target.heading)) - 1]
-        return _sgr.element.block(text=content, **style.dict)
+        return style.make(content=content)
 
     def _make_content(self, content: str) -> str:
         if not self.explicit_number:
@@ -946,16 +916,16 @@ class HTML(Element):
         tag: Stringable,
         attrs: dict | None = None,
         inline: bool = False,
-        default_output_target: TargetConfigType = "sphinx",
+        target_default: TargetConfigs = "sphinx",
     ):
-        super().__init__(default_output_target=default_output_target)
+        super().__init__(target_default=target_default)
         self.content = content
         self.tag = tag
         self.attrs = attrs or {}
         self.inline = inline
         return
 
-    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+    def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
         content = self.content.source(target=target, filters=filters)
         error_msg = f"Element '{self.tag}' is not a valid HTML element."
         try:
@@ -989,9 +959,9 @@ class InlineImage(Element):
         attrs_a: dict | None = None,
         container: Stringable | None = "span",
         attrs_container: dict | None = None,
-        default_output_target: TargetConfigType = "sphinx",
+        target_default: TargetConfigs = "sphinx",
     ):
-        super().__init__(default_output_target=default_output_target)
+        super().__init__(target_default=target_default)
         self.src = src
         self.src_dark = src_dark
         self.title = title
@@ -1011,7 +981,7 @@ class InlineImage(Element):
         self.attrs_container = attrs_container or {}
         return
 
-    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+    def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
         img_attrs = {
             "src": self.src,
             "title": self.title,
@@ -1046,9 +1016,9 @@ class Paragraph(Element):
         attrs: dict | None = None,
         container: Stringable | None = "div",
         attrs_container: dict | None = None,
-        default_output_target: TargetConfigType = "sphinx",
+        target_default: TargetConfigs = "sphinx",
     ):
-        super().__init__(default_output_target=default_output_target)
+        super().__init__(target_default=target_default)
         self.content = content
         self.name = name
         self.classes = classes or []
@@ -1057,7 +1027,7 @@ class Paragraph(Element):
         self.attrs_container = attrs_container or {}
         return
 
-    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+    def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
         content = self.content.source(target=target, filters=filters)
         if not content:
             return ""
@@ -1087,6 +1057,25 @@ class Paragraph(Element):
         return content
 
 
+class Rich(Element):
+
+    def __init__(
+        self,
+        content: RenderableType,
+        target_configs: TargetConfigs = None,
+        target_default: TargetConfigs = "sphinx",
+    ):
+        super().__init__(target_configs=target_configs, target_default=target_default)
+        self.content = content
+        return
+
+    def _source_rich(self, target: RichTargetConfig, filters: str | list[str] | None = None) -> RenderableType:
+        return self.content
+
+    def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
+        return target.rich_export.export(self.content)
+
+
 class TabItem(Element):
 
     def __init__(
@@ -1099,9 +1088,9 @@ class TabItem(Element):
         classes_container: str | list[str] | None = None,
         classes_label: str | list[str] | None = None,
         classes_content: str | list[str] | None = None,
-        default_output_target: TargetConfigType = "sphinx",
+        target_default: TargetConfigs = "sphinx",
     ):
-        super().__init__(default_output_target=default_output_target)
+        super().__init__(target_default=target_default)
         self.title = title
         self.content = content
         self.selected = selected
@@ -1112,7 +1101,7 @@ class TabItem(Element):
         self.classes_content = classes_content
         return
 
-    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+    def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
         title = self.title.source(target=target, filters=filters)
         content = self.content.source(target=target, filters=filters)
         options = {
@@ -1142,15 +1131,15 @@ class TabSet(Element):
         content: MDContainer,
         sync_group: Stringable | None = None,
         classes: list[Stringable] | None = None,
-        default_output_target: TargetConfigType = "sphinx",
+        target_default: TargetConfigs = "sphinx",
     ):
-        super().__init__(default_output_target=default_output_target)
+        super().__init__(target_default=target_default)
         self.content = content
         self.sync_group = sync_group
         self.classes = classes or []
         return
 
-    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+    def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
         options = {
             "sync-group": self.sync_group,
             "class": self.classes,
@@ -1173,7 +1162,6 @@ class TabSet(Element):
         class_container: str | list[str] | None = None,
         class_label: str | list[str] | None = None,
         class_content: str | list[str] | None = None,
-        fence: Literal["`", "~", ":"] = ":",
         content_seperator_title: str = "",
         content_seperator_content: str = "\n\n",
     ):
@@ -1186,7 +1174,6 @@ class TabSet(Element):
             classes_container=class_container,
             classes_label=class_label,
             classes_content=class_content,
-            fence=fence,
             content_seperator_title=content_seperator_title,
             content_seperator_content=content_seperator_content,
         )
@@ -1194,21 +1181,181 @@ class TabSet(Element):
         return
 
 
+class Table(Element):
+
+    def __init__(
+        self,
+        rows: list[tuple[list[tuple[MDContainer, HTMLAttrsType]], HTMLAttrsType]],
+        caption: Stringable | None = None,
+        align_table: Literal["left", "center", "right"] | None = None,
+        align_columns: Literal["left", "center", "right"] | list[Literal["left", "center", "right"]] | None = None,
+        num_rows_header: int = 0,
+        num_rows_footer: int = 0,
+        num_cols_stub: int = 0,
+        width_table: Stringable | None = None,
+        width_columns: list[int] | Literal["auto"] | None = None,
+        name: Stringable | None = None,
+        classes: list[Stringable] | None = None,
+        attrs_figure: HTMLAttrsType = None,
+        attrs_caption: HTMLAttrsType = None,
+        attrs_table: HTMLAttrsType = None,
+        attrs_body: HTMLAttrsType = None,
+        attrs_head: HTMLAttrsType = None,
+        attrs_foot: HTMLAttrsType = None,
+        attrs_tr: HTMLAttrsType = None,
+        attrs_th: HTMLAttrsType = None,
+        attrs_td: HTMLAttrsType = None,
+        attrs_body_tr: HTMLAttrsType = None,
+        attrs_body_th: HTMLAttrsType = None,
+        attrs_body_td: HTMLAttrsType = None,
+        attrs_head_tr: HTMLAttrsType = None,
+        attrs_head_th: HTMLAttrsType = None,
+        attrs_head_td: HTMLAttrsType = None,
+        attrs_foot_tr: HTMLAttrsType = None,
+        attrs_foot_th: HTMLAttrsType = None,
+        attrs_foot_td: HTMLAttrsType = None,
+        target_default: TargetConfigs = "sphinx",
+    ):
+        super().__init__(target_default=target_default)
+        self.rows = rows
+        self.caption = caption
+        self.align_table = align_table
+        self.align_columns = align_columns
+        self.num_rows_header = num_rows_header
+        self.num_rows_footer = num_rows_footer
+        self.num_cols_stub = num_cols_stub
+        self.width_table = width_table
+        self.width_columns = width_columns
+        self.name = name
+        self.classes = classes or []
+        self.attrs_figure = attrs_figure or {}
+        self.attrs_caption = attrs_caption or {}
+        self.attrs_table = attrs_table or {}
+        self.attrs_body = attrs_body or {}
+        self.attrs_head = attrs_head or {}
+        self.attrs_foot = attrs_foot or {}
+        self.attrs_tr = attrs_tr or {}
+        self.attrs_th = attrs_th or {}
+        self.attrs_td = attrs_td or {}
+        self.attrs_body_tr = attrs_body_tr or {}
+        self.attrs_body_th = attrs_body_th or {}
+        self.attrs_body_td = attrs_body_td or {}
+        self.attrs_head_tr = attrs_head_tr or {}
+        self.attrs_head_th = attrs_head_th or {}
+        self.attrs_head_td = attrs_head_td or {}
+        self.attrs_foot_tr = attrs_foot_tr or {}
+        self.attrs_foot_th = attrs_foot_th or {}
+        self.attrs_foot_td = attrs_foot_td or {}
+        return
+
+    def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
+        if not target.prefer_md:
+            rows_str = []
+            for row, row_attrs in self.rows:
+                row_str = []
+                for cell, cell_attrs in row:
+                    cell_str = cell.source(target=target, filters=filters)
+                    row_str.append((_htmp.elementor.markdown(cell_str), cell_attrs))
+                rows_str.append((row_str, row_attrs))
+            table = _htmp.elementor.table_from_rows(
+                rows_head=rows_str[:self.num_rows_header],
+                rows_body=rows_str[self.num_rows_header:-self.num_rows_footer],
+                rows_foot=rows_str[-self.num_rows_footer:],
+                as_figure=True,
+                caption=self.caption,
+                num_cols_stub=self.num_cols_stub,
+                attrs_figure=self.attrs_figure,
+                attrs_caption=self.attrs_caption,
+                attrs_table=self.attrs_table,
+                attrs_body=self.attrs_body,
+                attrs_head=self.attrs_head,
+                attrs_foot=self.attrs_foot,
+                attrs_tr=self.attrs_tr,
+                attrs_th=self.attrs_th,
+                attrs_td=self.attrs_td,
+                attrs_body_tr=self.attrs_body_tr,
+                attrs_body_th=self.attrs_body_th,
+                attrs_body_td=self.attrs_body_td,
+                attrs_head_tr=self.attrs_head_tr,
+                attrs_head_th=self.attrs_head_th,
+                attrs_head_td=self.attrs_head_td,
+                attrs_foot_tr=self.attrs_foot_tr,
+                attrs_foot_th=self.attrs_foot_th,
+                attrs_foot_td=self.attrs_foot_td,
+            ).source(indent=-1)
+            return table
+        if target.directive_list_table:
+            rows = []
+            for row, _ in self.rows:
+                cells = [cell for cell, _ in row]
+                rows.append(unordered_list(cells))
+            table_content = unordered_list(rows)
+            return directive(
+                name="list-table",
+                args=self.caption,
+                options={
+                    "align": self.align_table,
+                    "header-rows": self.num_rows_header,
+                    "stub-columns": self.num_cols_stub,
+                    "width": self.width_table,
+                    "widths": self.width_columns,
+                    "class": self.classes,
+                    "name": self.name,
+                },
+                content=table_content,
+            ).source(target=target, filters=filters)
+        rows = []
+        for row, _ in self.rows:
+            cells = []
+            for cell, _ in row:
+                cell_str = cell.source(target=target, filters=filters)
+                cells.append(cell_str)
+            rows.append(f"| {" | ".join(cells)} |")
+        num_cols = len(self.rows[0][0])
+        delimeter_row = []
+        for col_idx in range(num_cols):
+            if not self.align_columns:
+                delimeter_row.append("-----")
+                continue
+            align = self.align_columns[col_idx] if isinstance(self.align_columns, list) else self.align_columns
+            if align == "left":
+                delimeter_row.append(":----")
+            elif align == "right":
+                delimeter_row.append("----:")
+            else:
+                delimeter_row.append(":---:")
+        delimeter_row_str = f"| {' | '.join(delimeter_row)} |"
+        rows.insert(1, delimeter_row_str)
+        table = "\n".join(rows)
+        if target.directive_table:
+            return directive(
+                name="table",
+                args=self.caption,
+                options={
+                    "align": self.align_table,
+                    "width": self.width_table,
+                    "widths": self.width_columns,
+                },
+                content=table,
+            ).source(target=target, filters=filters)
+        return table
+
+
 class TargetAnchor(Element):
 
     def __init__(
         self,
-        content: _MDCode | Stringable,
+        content: _MDITRenderable | Stringable,
         name: Stringable,
-        default_output_target: TargetConfigType = "sphinx",
+        target_default: TargetConfigs = "sphinx",
     ):
-        super().__init__(default_output_target=default_output_target)
+        super().__init__(target_default=target_default)
         self.content = content
         self.name = name
         return
 
-    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
-        content = self.content.source(target=target, filters=filters) if isinstance(self.content, _MDCode) else str(self.content)
+    def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
+        content = self.content.source(target=target, filters=filters) if isinstance(self.content, _MDITRenderable) else str(self.content)
         name = str(self.name)
         if not (target.target_anchor and name):
             return content
@@ -1223,9 +1370,9 @@ class ThematicBreak(Element):
         attrs: dict | None = None,
         container: Stringable | None = "div",
         attrs_container: dict | None = None,
-        default_output_target: TargetConfigType = "sphinx",
+        target_default: TargetConfigs = "sphinx",
     ):
-        super().__init__(default_output_target=default_output_target)
+        super().__init__(target_default=target_default)
         self.name = name
         self.classes = classes or []
         self.attrs = attrs or {}
@@ -1233,7 +1380,7 @@ class ThematicBreak(Element):
         self.attrs_container = attrs_container or {}
         return
 
-    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+    def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
         hr = _htmp.element.hr(self.attrs | {"class": self.classes, "id": self.name}).source(indent=-1)
         return self._wrap(content=hr, container=self.container, attrs_container=self.attrs_container)
 
@@ -1252,9 +1399,9 @@ class TocTree(Element):
         reversed: bool = False,
         name: Stringable | None = None,
         numbered: bool | int = False,
-        default_output_target: TargetConfigType = "sphinx",
+        target_default: TargetConfigs = "sphinx",
     ):
-        super().__init__(default_output_target=default_output_target)
+        super().__init__(target_default=target_default)
         self.content = content
         self.glob = glob
         self.caption = caption
@@ -1267,7 +1414,7 @@ class TocTree(Element):
         self.numbered = numbered
         return
 
-    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+    def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
         content = self.content.source(target=target, filters=filters)
         options = {
             "glob": self.glob,
@@ -1297,9 +1444,9 @@ class Toggle(Element):
         opened: bool = False,
         attrs_details: dict | None = None,
         attrs_summary: dict | None = None,
-        default_output_target: TargetConfigType = "sphinx",
+        target_default: TargetConfigs = "sphinx",
     ):
-        super().__init__(default_output_target=default_output_target)
+        super().__init__(target_default=target_default)
         self.content = content
         self.title = title
         self.attrs_details = attrs_details or {}
@@ -1307,7 +1454,7 @@ class Toggle(Element):
         self.opened = opened
         return
 
-    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
+    def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
         if target.directive_toggle:
             return directive(
                 name="toggle",
@@ -1338,9 +1485,9 @@ class OrderedList(Element):
         style: Literal["a", "A", "i", "I", "1"] = "1",
         attrs_ol: dict | None = None,
         attrs_li: dict | None = None,
-        default_output_target: TargetConfigType = "sphinx",
+        target_default: TargetConfigs = "sphinx",
     ):
-        super().__init__(default_output_target=default_output_target)
+        super().__init__(target_default=target_default)
 
         self.content = content
         self.start = start
@@ -1351,8 +1498,8 @@ class OrderedList(Element):
         self.attrs_li = attrs_li or {}
         return
 
-    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
-        items = self.content.elements(target=target, filters=filters, string=True)
+    def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
+        items = self.content.elements(target=target, filters=filters, source=True)
         if not items:
             return ""
         if not target.prefer_md:
@@ -1404,9 +1551,9 @@ class UnOrderedList(Element):
         style: Literal["circle", "disc", "square"] = "disc",
         attrs_ul: dict | None = None,
         attrs_li: dict | None = None,
-        default_output_target: TargetConfigType = "sphinx",
+        target_default: TargetConfigs = "sphinx",
     ):
-        super().__init__(default_output_target=default_output_target)
+        super().__init__(target_default=target_default)
         self.content = content
         self.style = style
         self.classes = classes or []
@@ -1415,8 +1562,8 @@ class UnOrderedList(Element):
         self.attrs_li = attrs_li or {}
         return
 
-    def _str_md(self, target: _TargetConfig, filters: str | list[str] | None = None) -> str:
-        items = self.content.elements(target=target, filters=filters, string=True)
+    def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
+        items = self.content.elements(target=target, filters=filters, source=True)
         if not target.prefer_md:
             attrs_ul = {
                 "class": self.classes,
@@ -1433,9 +1580,7 @@ class UnOrderedList(Element):
         list_items = []
         for item in items:
             item_lines = item.splitlines()
-            item_lines = [f"- {item_lines[0]}"] + [
-                f"  {line}" for line in item_lines[1:]
-            ]
+            item_lines = [f"- {item_lines[0]}"] + [f"  {line}" for line in item_lines[1:]]
             list_items.extend(item_lines)
         list_str = "\n".join(list_items)
 
@@ -1480,7 +1625,7 @@ def admonition(
     emoji: str | None = None,
     content_seperator_title: str = "",
     content_seperator_content: str = "\n\n",
-    default_output_target: TargetConfigType = "sphinx",
+    target_default: TargetConfigs = "sphinx",
 ) -> Admonition:
     """Create a [MyST admonition](https://myst-parser.readthedocs.io/en/latest/syntax/admonitions.html).
 
@@ -1516,18 +1661,18 @@ def admonition(
         title_bold=title_bold,
         title_tight=title_tight,
         emoji=emoji,
-        default_output_target=default_output_target,
+        target_default=target_default,
     )
 
 
 def attribute(
-    content: _MDCode | Stringable,
+    content: _MDITRenderable | Stringable,
     block: bool,
     classes: Stringable | list[Stringable] | None = None,
     name: Stringable | None = None,
     attrs: dict | None = None,
     comment: Stringable | None = None,
-    default_output_target: TargetConfigType = "sphinx",
+    target_default: TargetConfigs = "sphinx",
 ):
     return Attribute(
         content=content,
@@ -1536,7 +1681,7 @@ def attribute(
         name=name,
         attrs=attrs,
         comment=comment,
-        default_output_target=default_output_target,
+        target_default=target_default,
     )
 
 
@@ -1578,7 +1723,7 @@ def badge(
     attrs_container: dict | None = None,
     merge_params: bool = True,
     use_defaults: bool = True,
-    default_output_target: TargetConfigType = "sphinx",
+    target_default: TargetConfigs = "sphinx",
 ) -> InlineImage:
     inputs = locals()
     params_light, params_dark = _make_badge_params(inputs)
@@ -1612,7 +1757,7 @@ def badge(
         attrs_a=attrs_a,
         container=container,
         attrs_container=attrs_container,
-        default_output_target=default_output_target,
+        target_default=target_default,
     )
     return image
 
@@ -1658,7 +1803,7 @@ def badges(
     container_conditions: str | list[str] | None = None,
     merge_params: bool = True,
     use_defaults: bool = True,
-    default_output_target: TargetConfigType = "sphinx",
+    target_default: TargetConfigs = "sphinx",
 ) -> MDContainer:
     default = locals()
     for top_level_param in ("items", "separator", "container", "attrs_container", "container_conditions"):
@@ -1686,7 +1831,7 @@ def badges(
         badge_list.append(badge(**badge_settings))
     spacer = "&nbsp;" * separator if isinstance(separator, int) else str(separator)
     return _mdit.container(
-        content=badge_list,
+        badge_list,
         content_seperator=spacer,
         html_container=container,
         html_container_attrs=attrs_container,
@@ -1720,7 +1865,7 @@ def block_image(
     attrs_a: dict | None = None,
     container: Stringable | None = "div",
     attrs_container: dict | None = None,
-    default_output_target: TargetConfigType = "sphinx",
+    target_default: TargetConfigs = "sphinx",
 ) -> BlockImage:
     caption = _mdit.container(caption, content_seperator="\n")
     return BlockImage(
@@ -1749,7 +1894,7 @@ def block_image(
         attrs_a=attrs_a,
         container=container,
         attrs_container=attrs_container,
-        default_output_target=default_output_target,
+        target_default=target_default,
     )
 
 
@@ -1764,7 +1909,7 @@ def block_quote(
     attrs_container: dict | None = None,
     content_seperator: str = "\n",
     content_separator_cite: str = ", ",
-    default_output_target: TargetConfigType = "sphinx",
+    target_default: TargetConfigs = "sphinx",
 ) -> BlockQuote:
     content = _mdit.container(content, content_seperator=content_seperator)
     cite = _mdit.container(cite, content_seperator=content_separator_cite)
@@ -1777,7 +1922,7 @@ def block_quote(
         attrs_cite=attrs_cite,
         container=container,
         attrs_container=attrs_container,
-        default_output_target=default_output_target,
+        target_default=target_default,
     )
 
 
@@ -1814,7 +1959,7 @@ def button(
     attrs_container: dict | None = None,
     merge_params: bool = True,
     use_defaults: bool = True,
-    default_output_target: TargetConfigType = "sphinx",
+    target_default: TargetConfigs = "sphinx",
 ) -> InlineImage:
     return badge(
         service="static",
@@ -1850,7 +1995,7 @@ def button(
         attrs_container=attrs_container,
         merge_params=merge_params,
         use_defaults=use_defaults,
-        default_output_target=default_output_target,
+        target_default=target_default,
     )
 
 
@@ -1888,7 +2033,7 @@ def buttons(
     attrs_container: dict | None = None,
     merge_params: bool = True,
     use_defaults: bool = True,
-    default_output_target: TargetConfigType = "sphinx",
+    target_default: TargetConfigs = "sphinx",
     container_conditions: str | list[str] | None = None,
 ) -> MDContainer:
     default = locals()
@@ -1911,7 +2056,7 @@ def buttons(
         badge_list.append(button(**badge_settings))
     spacer = "&nbsp;" * separator if isinstance(separator, int) else str(separator)
     return _mdit.container(
-        content=badge_list,
+        badge_list,
         content_seperator=spacer,
         html_container=container,
         html_container_attrs=attrs_container,
@@ -1943,7 +2088,7 @@ def card(
     classes_title: list[str] | None = None,
     classes_img_top: list[str] | None = None,
     classes_img_bottom: list[str] | None = None,
-    default_output_target: TargetConfigType = "sphinx",
+    target_default: TargetConfigs = "sphinx",
     content_separator_header: str = "\n\n",
     content_separator_body: str = "\n\n",
     content_separator_footer: str = "\n\n",
@@ -1974,12 +2119,12 @@ def card(
         classes_title=classes_title,
         classes_img_top=classes_img_top,
         classes_img_bottom=classes_img_bottom,
-        default_output_target=default_output_target,
+        target_default=target_default,
     )
 
 
 def code_block(
-    content: ContainerInputType | MDContainer | None = None,
+    content: Stringable | None = None,
     language: Stringable | None = None,
     caption: Stringable | None = None,
     line_num: bool = False,
@@ -1990,7 +2135,7 @@ def code_block(
     classes: Stringable | list[Stringable] | None = None,
     degrade_to_diff: bool = True,
     content_seperator: str = "\n",
-    default_output_target: TargetConfigType = "sphinx",
+    target_default: TargetConfigs = "sphinx",
 ) -> CodeBlock:
     """Create a MyST [code block directive](https://myst-parser.readthedocs.io/en/latest/syntax/code_and_apis.html#adding-a-caption).
 
@@ -2018,7 +2163,6 @@ def code_block(
     fence: {'`', '~', ':'}, default: '`'
         Fence character.
     """
-    content = _mdit.container(content, content_seperator=content_seperator)
     return CodeBlock(
         content=content,
         language=language,
@@ -2030,7 +2174,7 @@ def code_block(
         name=name,
         classes=classes,
         degrade_to_diff=degrade_to_diff,
-        default_output_target=default_output_target,
+        target_default=target_default,
     )
 
 
@@ -2038,10 +2182,10 @@ def code_span(
     content: Stringable,
     language: Stringable | None = None,
     attrs: dict | None = None,
-    default_output_target: TargetConfigType = "sphinx",
+    target_default: TargetConfigs = "sphinx",
 ) -> CodeSpan:
     return CodeSpan(
-        content=content, language=language, attrs=attrs, default_output_target=default_output_target
+        content=content, language=language, attrs=attrs, target_default=target_default
     )
 
 
@@ -2053,12 +2197,12 @@ def directive(
     content: ContainerInputType | MDContainer | None = None,
     content_seperator_args: str = " ",
     content_seperator_content: str = "\n\n",
-    default_output_target: TargetConfigType = "sphinx",
+    target_default: TargetConfigs = "sphinx",
 ) -> Directive:
     args = _mdit.container(args, content_seperator=content_seperator_args)
     content = _mdit.container(content, content_seperator=content_seperator_content)
     return Directive(
-        name=name, args=args, options=options, content=content, default_output_target=default_output_target)
+        name=name, args=args, options=options, content=content, target_default=target_default)
 
 
 def field_list_item(
@@ -2067,11 +2211,11 @@ def field_list_item(
     indent: int = 3,
     content_seperator_name: str = "",
     content_seperator_body: str = "\n\n",
-    default_output_target: TargetConfigType = "sphinx",
+    target_default: TargetConfigs = "sphinx",
 ) -> FieldListItem:
     title = _mdit.container(title, content_seperator=content_seperator_name)
     description = _mdit.container(description, content_seperator=content_seperator_body)
-    return FieldListItem(title=title, description=description, indent=indent, default_output_target=default_output_target)
+    return FieldListItem(title=title, description=description, indent=indent, target_default=target_default)
 
 
 def field_list(
@@ -2079,20 +2223,20 @@ def field_list(
     classes: list[Stringable] | None = None,
     name: Stringable | None = None,
     content_seperator: str = "\n",
-    default_output_target: TargetConfigType = "sphinx",
+    target_default: TargetConfigs = "sphinx",
 ) -> FieldList:
     content = _mdit.container(content, content_seperator=content_seperator)
     for item in content.values():
         if not isinstance(item.content, FieldListItem):
             raise ValueError("Field list must contain only field list items.")
-    return FieldList(content=content, name=name, classes=classes, default_output_target=default_output_target)
+    return FieldList(content=content, name=name, classes=classes, target_default=target_default)
 
 
 def frontmatter(
     content: dict | None = None,
-    default_output_target: TargetConfigType = "sphinx",
+    target_default: TargetConfigs = "sphinx",
 ) -> FrontMatter:
-    return FrontMatter(content=content, default_output_target=default_output_target)
+    return FrontMatter(content=content, target_default=target_default)
 
 
 def heading(
@@ -2106,7 +2250,7 @@ def heading(
     container_inline: Stringable | None = "span",
     attrs_container: dict | None = None,
     content_seperator: str = "",
-    default_output_target: TargetConfigType = "sphinx",
+    target_default: TargetConfigs = "sphinx",
 ) -> Heading:
     content = _mdit.container(content, content_seperator=content_seperator)
     return Heading(
@@ -2119,7 +2263,7 @@ def heading(
         container=container,
         container_inline=container_inline,
         attrs_container=attrs_container,
-        default_output_target=default_output_target,
+        target_default=target_default,
     )
 
 
@@ -2139,12 +2283,12 @@ def highlights(
             attrs=attrs_p,
         )
         item = _mdit.container(
-            content={"title": title_badge, "description": text},
+            {"title": title_badge, "description": text},
             content_seperator="",
         )
         contents.append(item)
     return _mdit.container(
-        content=contents,
+        contents,
         content_seperator="\n\n",
     )
 
@@ -2155,15 +2299,15 @@ def html(
     attrs: dict | None = None,
     inline: bool = False,
     content_seperator: str = "\n\n",
-    default_output_target: TargetConfigType = "sphinx",
+    target_default: TargetConfigs = "sphinx",
 ):
-    content = _mdit.container(content=content, content_seperator=content_seperator)
+    content = _mdit.container(content, content_seperator=content_seperator)
     return HTML(
         content=content,
         tag=tag,
         attrs=attrs,
         inline=inline,
-        default_output_target=default_output_target,
+        target_default=target_default,
     )
 
 
@@ -2185,7 +2329,7 @@ def inline_image(
     attrs_a: dict | None = None,
     container: Stringable | None = "span",
     attrs_container: dict | None = None,
-    default_output_target: TargetConfigType = "sphinx",
+    target_default: TargetConfigs = "sphinx",
 ) -> InlineImage:
     return InlineImage(
         src=src,
@@ -2205,7 +2349,7 @@ def inline_image(
         attrs_a=attrs_a,
         container=container,
         attrs_container=attrs_container,
-        default_output_target=default_output_target,
+        target_default=target_default,
     )
 
 
@@ -2249,7 +2393,7 @@ def menu(
     attrs_container: dict | None = None,
     merge_params: bool = True,
     use_defaults: bool = True,
-    default_output_target: TargetConfigType = "sphinx",
+    target_default: TargetConfigs = "sphinx",
     container_conditions: str | list[str] | None = None,
 ):
     inputs = locals()
@@ -2272,7 +2416,7 @@ def menu(
     if line_bottom:
         content["line_bottom"] = thematic_break(attrs={"width": line_bottom_width} | (attrs_hr_bottom or {}))
     return _mdit.container(
-        content=content,
+        content,
         content_seperator="\n\n",
         html_container=container,
         html_container_attrs=attrs_container,
@@ -2288,7 +2432,7 @@ def paragraph(
     container: Stringable | None = "div",
     attrs_container: dict | None = None,
     content_seperator: str = "\n",
-    default_output_target: TargetConfigType = "sphinx",
+    target_default: TargetConfigs = "sphinx",
 ) -> Paragraph:
     content = _mdit.container(content, content_seperator=content_seperator)
     return Paragraph(
@@ -2298,9 +2442,16 @@ def paragraph(
         attrs=attrs,
         container=container,
         attrs_container=attrs_container,
-        default_output_target=default_output_target,
+        target_default=target_default,
     )
 
+
+def rich(
+    content: RenderableType,
+    target_config: TargetConfigs = None,
+    target_default: TargetConfigs = "sphinx",
+) -> Rich:
+    return Rich(content=content, target_configs=target_config, target_default=target_default)
 
 
 def spacer(
@@ -2310,7 +2461,7 @@ def spacer(
     attrs_img: dict | None = None,
     container: Stringable | None = "span",
     attrs_container: dict | None = None,
-    default_output_target: TargetConfigType = "github",
+    target_default: TargetConfigs = "github",
 ):
     return inline_image(
         src="docs/source/_static/img/spacer.svg",  #TODO: Add permanent link to spacer image
@@ -2320,7 +2471,7 @@ def spacer(
         attrs_img=attrs_img,
         container=container,
         attrs_container=attrs_container,
-        default_output_target=default_output_target,
+        target_default=target_default,
     )
 
 
@@ -2335,7 +2486,7 @@ def tab_item(
     classes_content: str | list[str] | None = None,
     content_seperator_title: str = " ",
     content_seperator_content: str = "\n\n",
-    default_output_target: TargetConfigType = "sphinx",
+    target_default: TargetConfigs = "sphinx",
 ) -> TabItem:
     """Create a [Sphinx-Design tab item](https://sphinx-design.readthedocs.io/en/furo-theme/tabs.html).
 
@@ -2375,7 +2526,7 @@ def tab_item(
         classes_container=classes_container,
         classes_label=classes_label,
         classes_content=classes_content,
-        default_output_target=default_output_target,
+        target_default=target_default,
 )
 
 
@@ -2384,7 +2535,7 @@ def tab_set(
     sync_group: Stringable | None = None,
     classes: list[Stringable] | None = None,
     content_seperator: str = "\n\n",
-    default_output_target: TargetConfigType = "sphinx",
+    target_default: TargetConfigs = "sphinx",
 ) -> TabSet:
     """Create a [Sphinx-Design tab set](https://sphinx-design.readthedocs.io/en/furo-theme/tabs.html).
 
@@ -2404,15 +2555,105 @@ def tab_set(
     for item in content.values():
         if not isinstance(item.content, TabItem):
             raise ValueError("Tab set must contain only tab items.")
-    return TabSet(content=content, sync_group=sync_group, classes=classes, default_output_target=default_output_target)
+    return TabSet(content=content, sync_group=sync_group, classes=classes, target_default=target_default)
+
+
+def table(
+    rows: list[
+        tuple[
+            list[ContainerInputType | MDContainer | tuple[ContainerInputType | MDContainer, HTMLAttrsType]],
+            HTMLAttrsType
+        ]
+        | list[ContainerInputType | MDContainer | tuple[ContainerInputType | MDContainer, HTMLAttrsType]]
+    ],
+    caption: Stringable | None = None,
+    align_table: Literal["left", "center", "right"] | None = None,
+    align_columns: Literal["left", "center", "right"] | list[Literal["left", "center", "right"]] | None = None,
+    num_rows_header: int = 0,
+    num_rows_footer: int = 0,
+    num_cols_stub: int = 0,
+    width_table: Stringable | None = None,
+    width_columns: list[int] | Literal["auto"] | None = None,
+    name: Stringable | None = None,
+    classes: list[Stringable] | None = None,
+    attrs_figure: HTMLAttrsType = None,
+    attrs_caption: HTMLAttrsType = None,
+    attrs_table: HTMLAttrsType = None,
+    attrs_body: HTMLAttrsType = None,
+    attrs_head: HTMLAttrsType = None,
+    attrs_foot: HTMLAttrsType = None,
+    attrs_tr: HTMLAttrsType = None,
+    attrs_th: HTMLAttrsType = None,
+    attrs_td: HTMLAttrsType = None,
+    attrs_body_tr: HTMLAttrsType = None,
+    attrs_body_th: HTMLAttrsType = None,
+    attrs_body_td: HTMLAttrsType = None,
+    attrs_head_tr: HTMLAttrsType = None,
+    attrs_head_th: HTMLAttrsType = None,
+    attrs_head_td: HTMLAttrsType = None,
+    attrs_foot_tr: HTMLAttrsType = None,
+    attrs_foot_th: HTMLAttrsType = None,
+    attrs_foot_td: HTMLAttrsType = None,
+    content_seperator: str = "\n\n",
+    target_default: TargetConfigs = "sphinx",
+):
+    rows_formatted = []
+    for row in rows:
+        row_formatted = []
+        if isinstance(row, tuple):
+            row_content, row_attrs = row
+        else:
+            row_content = row
+            row_attrs = {}
+        for cell in row_content:
+            if isinstance(cell, tuple):
+                cell_content, cell_attrs = cell
+            else:
+                cell_content = cell
+                cell_attrs = {}
+            cell_content = _mdit.container(cell_content, content_seperator=content_seperator)
+            row_formatted.append((cell_content, cell_attrs))
+        rows_formatted.append((row_formatted, row_attrs))
+    return Table(
+        rows=rows_formatted,
+        caption=caption,
+        align_table=align_table,
+        align_columns=align_columns,
+        num_rows_header=num_rows_header,
+        num_rows_footer=num_rows_footer,
+        num_cols_stub=num_cols_stub,
+        width_table=width_table,
+        width_columns=width_columns,
+        name=name,
+        classes=classes,
+        attrs_figure=attrs_figure,
+        attrs_caption=attrs_caption,
+        attrs_table=attrs_table,
+        attrs_body=attrs_body,
+        attrs_head=attrs_head,
+        attrs_foot=attrs_foot,
+        attrs_tr=attrs_tr,
+        attrs_th=attrs_th,
+        attrs_td=attrs_td,
+        attrs_body_tr=attrs_body_tr,
+        attrs_body_th=attrs_body_th,
+        attrs_body_td=attrs_body_td,
+        attrs_head_tr=attrs_head_tr,
+        attrs_head_th=attrs_head_th,
+        attrs_head_td=attrs_head_td,
+        attrs_foot_tr=attrs_foot_tr,
+        attrs_foot_th=attrs_foot_th,
+        attrs_foot_td=attrs_foot_td,
+        target_default=target_default,
+    )
 
 
 def target_anchor(
-    content: _MDCode | Stringable,
+    content: _MDITRenderable | Stringable,
     name: Stringable,
-    default_output_target: TargetConfigType = "sphinx",
+    target_default: TargetConfigs = "sphinx",
 ) -> TargetAnchor:
-    return TargetAnchor(content=content, name=name, default_output_target=default_output_target)
+    return TargetAnchor(content=content, name=name, target_default=target_default)
 
 
 def thematic_break(
@@ -2421,7 +2662,7 @@ def thematic_break(
     attrs: dict | None = None,
     container: Stringable | None = "div",
     attrs_container: dict | None = None,
-    default_output_target: TargetConfigType = "sphinx",
+    target_default: TargetConfigs = "sphinx",
 ) -> ThematicBreak:
     """Create a [thematic break](https://github.github.com/gfm/#thematic-break).
     """
@@ -2431,7 +2672,7 @@ def thematic_break(
         attrs=attrs,
         container=container,
         attrs_container=attrs_container,
-        default_output_target=default_output_target,
+        target_default=target_default,
     )
 
 
@@ -2447,7 +2688,7 @@ def toctree(
     name: Stringable | None = None,
     numbered: bool | int = False,
     content_seperator: str = "\n",
-    default_output_target: TargetConfigType = "sphinx",
+    target_default: TargetConfigs = "sphinx",
 ) -> TocTree:
     content = _mdit.container(content, content_seperator=content_seperator)
     return TocTree(
@@ -2461,7 +2702,7 @@ def toctree(
         reversed=reversed,
         name=name,
         numbered=numbered,
-        default_output_target=default_output_target,
+        target_default=target_default,
     )
 
 def toggle(
@@ -2472,7 +2713,7 @@ def toggle(
     attrs_summary: dict | None = None,
     content_seperator_title: str = "",
     content_seperator_content: str = "\n\n",
-    default_output_target: TargetConfigType = "sphinx",
+    target_default: TargetConfigs = "sphinx",
 ) -> Toggle:
     title = _mdit.container(title, content_seperator=content_seperator_title)
     content = _mdit.container(content, content_seperator=content_seperator_content)
@@ -2482,7 +2723,7 @@ def toggle(
         opened=opened,
         attrs_details=attrs_details,
         attrs_summary=attrs_summary,
-        default_output_target=default_output_target,
+        target_default=target_default,
     )
 
 
@@ -2495,7 +2736,7 @@ def ordered_list(
     attrs_ol: dict | None = None,
     attrs_li: dict | None = None,
     content_seperator: str = "\n\n",
-    default_output_target: TargetConfigType = "sphinx",
+    target_default: TargetConfigs = "sphinx",
 ) -> OrderedList:
     content = _mdit.container(content, content_seperator=content_seperator)
     return OrderedList(
@@ -2506,7 +2747,7 @@ def ordered_list(
         style=style,
         attrs_ol=attrs_ol,
         attrs_li=attrs_li,
-        default_output_target=default_output_target,
+        target_default=target_default,
     )
 
 
@@ -2518,7 +2759,7 @@ def unordered_list(
     attrs_ul: dict | None = None,
     attrs_li: dict | None = None,
     content_seperator: str = "\n\n",
-    default_output_target: TargetConfigType = "sphinx",
+    target_default: TargetConfigs = "sphinx",
 ) -> UnOrderedList:
     content = _mdit.container(content, content_seperator=content_seperator)
     return UnOrderedList(
@@ -2528,7 +2769,7 @@ def unordered_list(
         style=style,
         attrs_ul=attrs_ul,
         attrs_li=attrs_li,
-        default_output_target=default_output_target,
+        target_default=target_default,
     )
 
 

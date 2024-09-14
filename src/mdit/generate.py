@@ -31,8 +31,10 @@ class DocumentGenerator:
         }
         return
 
-    def generate(self, config: dict, base: bool = True):
+    def generate(self, config: dict | list, base: bool = True):
         config = copy.deepcopy(config)
+        if isinstance(config, list):
+            return self.generate_container(config)
         if base and "class" in config:
             return self.generate_template(config)
         heading = self.elem_heading(config["heading"]) if "heading" in config else None
@@ -81,9 +83,9 @@ class DocumentGenerator:
                         inline_elements.append(
                             (self.generate_element(inline_element), conditions)
                         )
-                inline_container = _mdit.inline_container(*inline_elements)
+                inline_container = _mdit.container(*inline_elements, content_seperator="")
                 elements.append(inline_container)
-        return _mdit.block_container(*elements)
+        return _mdit.container(*elements, content_seperator="\n\n")
 
     def generate_element(self, element: dict):
         elem_class = element.pop("class")

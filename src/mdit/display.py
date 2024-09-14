@@ -4,6 +4,7 @@ import webbrowser as _webbrowser
 import tempfile as _tempfile
 import time as _time
 
+import rich as _rich
 from IPython import display as _display
 
 
@@ -43,4 +44,10 @@ def ipython(content: str, as_md: bool = True) -> None:
     """
     renderer = _display.Markdown if as_md else _display.HTML
     _display.display(renderer(content))
+    return
+
+
+def console(content, output: _rich.console.Console | None = None) -> None:
+    writer = output or _rich
+    writer.print(content)
     return

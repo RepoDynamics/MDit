@@ -5,16 +5,12 @@ import tempfile as _tempfile
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 from pathlib import Path as _Path
 
-
 from functools import partial as _partial
 import cmarkgfm as _gfm_pypi
 from readme_renderer import markdown as _readme_renderer_md, clean as _readme_renderer_clean
 from sphinx.application import Sphinx as _Sphinx
-
-
 import markdown_it as _mdit
 import markdown_it.utils as _mdit_utils
-
 from mdit_py_plugins.amsmath import amsmath_plugin as _mdit_plugin_amsmath
 from mdit_py_plugins.anchors import anchors_plugin as _mdit_plugin_anchors
 from mdit_py_plugins.attrs import attrs_block_plugin as _mdit_plugin_attrs_block, attrs_plugin as _mdit_plugin_attrs
@@ -33,11 +29,9 @@ from mdit_py_plugins.wordcount import wordcount_plugin as _mdit_plugin_wordcount
 if _TYPE_CHECKING:
     from typing import IO, Literal, Callable
 
-# from myst_parser.config.main import MdParserConfig
-
 
 def sphinx(
-    content: str | dict,
+    content: str | dict[str, str],
     config: dict | None = None,
     status: IO[str] | None = _sys.stdout,
     warning: IO[str] | None = _sys.stderr,
@@ -54,9 +48,10 @@ def sphinx(
     with _tempfile.TemporaryDirectory() as temp_dir:
         temp_dir = _Path(temp_dir)
         src_dir = temp_dir / "source"
-        src_dir.mkdir()
         for rel_path, text in content.items():
-            with open((src_dir / rel_path).with_suffix(".md"), "w") as f:
+            filepath = (src_dir / rel_path).with_suffix(".md")
+            filepath.parent.mkdir(parents=True, exist_ok=True)
+            with open(filepath, "w") as f:
                 f.write(text)
         out_dir = temp_dir / "build"
         _Sphinx(
@@ -79,8 +74,8 @@ def sphinx(
         return (out_dir / "index.html").read_text()
 
 
-def to_html(
-    source: str,
+def markdownit(
+    source: str | dict[str, str],
     components_core: set[
         Literal['block', 'inline', 'linkify', 'normalize', 'replacements', 'smartquotes', 'text_join']
     ] = ('block', 'inline', 'linkify', 'normalize', 'replacements', 'smartquotes', 'text_join'),
@@ -296,28 +291,13 @@ def to_html(
             plugin_func = plugin
             plugin_config = {}
         parser.use(plugin_func, **plugin_config)
-    return parser.render(src=source, env=env)
+    if isinstance(source, str):
+        return parser.render(src=source, env=env)
+    return {key: parser.render(src=value, env=env) for key, value in source.items()}
 
 
-
-# def create_md_parser(
-#     config: MdParserConfig, renderer: Callable[[MarkdownIt], RendererProtocol]
-# ) -> MarkdownIt:
-#     """Return a Markdown parser with the required MyST configuration."""
-#
-#     md.options.update(
-#         {
-#             "typographer": typographer,
-#             "linkify": "linkify" in config.enable_extensions,
-#             "myst_config": config,
-#         }
-#     )
-#
-#     return md
-
-
-def gfm_to_html_pypi(
-    source: str,
+def cmarkgfm(
+    source: str | dict[str, str],
     extensions: tuple[str, ...] = ('autolink', 'strikethrough', 'table', 'tagfilter', 'tasklist'),
     unsafe: bool = True,
     smart: bool = False,
@@ -325,14 +305,12 @@ def gfm_to_html_pypi(
     hard_breaks: bool = False,
     no_breaks: bool = False,
     source_pos: bool = False,
-    footnotes: bool = False,
+    footnotes: bool = True,
     validate_utf8: bool = False,
     github_pre_lang: bool = True,
     liberal_html_tag: bool = False,
-    strikethrough_double_tilde: bool = False,
+    strikethrough_double_tilde: bool = True,
     table_prefer_style_attributes: bool = False,
-    highlight_code: bool = True,
-    sanitize: bool = True,
 ):
     """Convert CommonMark or GitHub Flavored Markdown to HTML
     using the [CMarkGFM](https://github.com/theacodes/cmarkgfm) library.
@@ -434,14 +412,24 @@ def gfm_to_html_pypi(
     ):
         if arg:
             options |= cmark_arg
+    if isinstance(source, str):
+        return _gfm_pypi.markdown_to_html_with_extensions(
+            text=source,
+            options=options,
+            extensions=extensions,
+        )
+    return {
+        key: _gfm_pypi.markdown_to_html_with_extensions(
+            text=source,
+            options=options,
+            extensions=extensions,
+        ) for key, source in source.items()
+    }
 
-    html_syntax: str = _gfm_pypi.markdown_to_html_with_extensions(
-        text=source,
-        options=options,
-        extensions=extensions,
-    )
-    if highlight_code:
-        html_syntax = _readme_renderer_md._highlight(html_syntax)
-    if sanitize:
-        html_syntax = _readme_renderer_clean.clean(html_syntax)
-    return html_syntax
+
+def readme_renderer(
+    source: str | dict[str, str],
+):
+    if isinstance(source, str):
+        return _readme_renderer_md.render(source)
+    return {key: _readme_renderer_md.render(value) for key, value in source.items()}

@@ -4,14 +4,17 @@ from typing import TYPE_CHECKING as _TYPE_CHECKING, NamedTuple as _NamedTuple
 import re as _re
 
 import htmp as _htmp
+import rich
+import rich.text
+import rich.markdown
 
-from mdit.protocol import MDCode as _MDCode
-from mdit import display as _display
-
+from mdit.protocol import MDITRenderable as _MDCode
+from mdit.renderable import Renderable as _Renderable
 
 if _TYPE_CHECKING:
     from typing import Literal
-    from mdit.protocol import ContainerInputType, ContainerContentType, ContainerContentType, TargetConfigType, Stringable
+    from rich.console import RenderableType
+    from mdit.protocol import ContainerContentType, TargetConfigs, Stringable, MDTargetConfig, RichTargetConfig
 
 
 class ContainerContent(_NamedTuple):
@@ -21,8 +24,14 @@ class ContainerContent(_NamedTuple):
 
 class Container:
 
-    def __init__(self, data: dict[str | int, ContainerContent] | None = None):
+    def __init__(
+        self,
+        data: dict[str | int, ContainerContent] | None = None,
+        *args,
+        **kwargs
+    ):
         self._data = data or {}
+        super().__init__(*args, **kwargs)
         return
 
     def append(
@@ -69,16 +78,16 @@ class Container:
 
     def elements(
         self,
-        target: TargetConfigType | None = None,
+        target: TargetConfigs | None = None,
         filters: str | list[str] | None = None,
-        string: bool = False,
+        source: bool = False,
     ) -> list:
         elements = []
         if isinstance(filters, str):
             filters = [filters]
         for content, conditions in self.values():
             if not filters or not conditions or any(filter in conditions for filter in filters):
-                if not string:
+                if not source:
                     elements.append(content)
                 elif isinstance(content, _MDCode):
                     elements.append(content.source(target=target, filters=filters))
@@ -112,9 +121,7 @@ class Container:
         return bool(self._data)
 
 
-class MDContainer(Container):
-
-    _IS_MD_CODE = True
+class MDContainer(Container, _Renderable):
 
     def __init__(
         self,
@@ -123,16 +130,53 @@ class MDContainer(Container):
         html_container: Stringable | None = None,
         html_container_attrs: dict | None = None,
         html_container_conditions: list[str] | None = None,
+        target_configs: TargetConfigs = None,
+        target_default: str = "sphinx"
     ):
-        super().__init__(content)
+        super().__init__(
+            data=content,
+            target_configs=target_configs,
+            target_default=target_default
+        )
         self.content_separator = content_separator
         self.html_container = html_container
         self.html_container_attrs = html_container_attrs or {}
         self.html_container_conditions = html_container_conditions or []
         return
 
-    def source(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> str:
-        elements = self.elements(target=target, filters=filters, string=True)
+    @property
+    def code_fence_count(self) -> int:
+        return max(
+            (
+                content.code_fence_count if isinstance(content, _MDCode)
+                else self._count_code_fence(str(content))
+                for content, _ in self._data.values()
+            ),
+            default=0,
+        )
+
+    def _source_rich(self, target: RichTargetConfig, filters: str | list[str] | None = None) -> RenderableType:
+        block_container = "\n" in self.content_separator
+        elements = self.elements(target=target, filters=filters, source=True)
+        if not elements:
+            return ""
+        if block_container:
+            group = [
+                rich.markdown.Markdown(element) if isinstance(element, str) else element
+                for element in elements
+            ]
+            return rich.console.Group(*group) if len(group) > 1 else group[0]
+        if len(elements) == 1:
+            return rich.text.Text(elements[0])
+        text = rich.text.Text()
+        for element in elements[:-1]:
+            text.append(element)
+            text.append(self.content_separator)
+        text.append(elements[-1])
+        return text
+
+    def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
+        elements = self.elements(target=target, filters=filters, source=True)
         elements_str = self.content_separator.join(elements)
         if self.html_container and self.html_container_attrs and (
             not filters
@@ -140,56 +184,9 @@ class MDContainer(Container):
             or any(filter in self.html_container_conditions for filter in filters)
         ):
             container_func = getattr(_htmp.element, str(self.html_container))
-            return container_func(_htmp.elementor.markdown(elements_str), self.html_container_attrs).source(indent=-1)
+            return container_func(_htmp.elementor.markdown(elements_str), self.html_container_attrs).source(
+                indent=-1)
         return elements_str
-
-    def display(self, target: TargetConfigType | None = None, filters: str | list[str] | None = None) -> None:
-        """Display the element in an IPython notebook."""
-        _display.ipython(self.source(target=target, filters=filters))
-        return
-
-    @property
-    def code_fence_count(self) -> int:
-        pattern = _re.compile(r'^\s{0, 3}(`{3,}|~{3,}|:{3,})', _re.MULTILINE)
-        counts = []
-        for content, _ in self._data.values():
-            if isinstance(content, _MDCode):
-                counts.append(content.code_fence_count)
-            else:
-                matches = pattern.findall(str(content))
-                if matches:
-                    counts.append(max(len(match) for match in matches))
-        return max(counts, default=0)
-
-
-    # def __str__(self):
-    #     if not self._block:
-    #         if any(not isinstance(elem, str) for elem in self._content.values()):
-    #             raise ValueError("Inline elements must have string content.")
-    #     elif self._leaf:
-    #         if any(isinstance(elem, Element) and elem.is_block for elem in self._content.values()):
-    #             raise ValueError("Leaf block elements cannot contain block content.")
-    #     content = "".join(str(elem) for elem in self._content.values())
-    #     md = self._md.replace("${{content}}", content)
-    #     newlines_before, newlines_after = [
-    #         newlines_count if isinstance(newlines_count, int) else (1 if self._block else 0)
-    #         for newlines_count in (self.newlines_before, self.newlines_after)
-    #     ]
-    #     return f"{newlines_before * '\n'}{md}{newlines_after * '\n'}"
 
     def __str__(self) -> str:
         return self.source()
-
-
-class BlockMDContainer(MDContainer):
-
-    def __init__(self, content: dict[str | int, ContainerContent] | None = None):
-        super().__init__(content, content_separator="\n\n")
-        return
-
-
-class InlineMDContainer(MDContainer):
-
-    def __init__(self, content: dict[str | int, ContainerContent] | None = None):
-        super().__init__(content, content_separator="")
-        return

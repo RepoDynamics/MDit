@@ -3,16 +3,18 @@ from __future__ import annotations
 from typing import TYPE_CHECKING as _TYPE_CHECKING, Callable, Sequence
 
 import mdit as _mdit
-from mdit import element as _elem, target as _target, display as _display
-from mdit.protocol import TargetConfig as _TargetConfig, ANSITargetConfig as _ANSITargetConfig, TargetConfig
+from mdit import element as _elem
+from mdit.renderable import Renderable as _Renderable
+import rich as _rich
 
 if _TYPE_CHECKING:
+    from rich.console import RenderableType
     from mdit.container import Container, MDContainer
     from mdit.element import FrontMatter, Heading
-    from mdit.protocol import TargetConfigType, ContainerInputType
+    from mdit.protocol import TargetConfigs, TargetConfigInput, ContainerInputType, RichTargetConfig, MDTargetConfig
 
 
-class Document:
+class Document(_Renderable):
 
     def __init__(
         self,
@@ -26,10 +28,11 @@ class Document:
         current_section_key: list[str | int] = None,
         toctree_args: dict[str, str] | None = None,
         toctree_dirhtml: bool = True,
-        target_config: dict[str, _TargetConfig | _ANSITargetConfig] | None = None,
-        default_output_target: TargetConfigType = "sphinx",
+        target_configs: TargetConfigs = None,
+        target_default: TargetConfigs = "sphinx",
         deep_section_generator: Callable[[Document], str] | None = None,
     ):
+        super().__init__(target_configs=target_configs, target_default=target_default)
         self.heading = heading
         self.body = body
         self.section = section
@@ -39,13 +42,6 @@ class Document:
         self.separate_sections = separate_sections
         self.toctree_args = toctree_args or {}
         self.toctree_dirhtml = toctree_dirhtml
-        self.target_config = {
-            "sphinx": _target.sphinx(),
-            "github": _target.github(),
-            "pypi": _target.pypi(),
-            "ansi": _target.ansi(),
-        } | (target_config or {})
-        self.default_output_target = default_output_target
         self.deep_section_generator = deep_section_generator
         if not current_section_key:
             self._current_section_key = []
@@ -56,17 +52,6 @@ class Document:
             for key in current_section_key:
                 self._current_section = self._current_section.section[key].content
         return
-
-    def depth(
-        self,
-        target: TargetConfigType | None = None,
-        filters: str | list[str] | None = None,
-    ) -> int:
-        section_depths = (
-            doc.depth(target=target, filters=filters)
-            for doc in self.section.elements(target=target, filters=filters, string=False)
-        )
-        return 1 + max(section_depths, default=0)
 
     @property
     def current_section(self) -> Document:
@@ -103,34 +88,32 @@ class Document:
 
     def display(
         self,
-        target: TargetConfigType | None = None,
+        target: TargetConfigInput = None,
         filters: str | list[str] | None = None,
         heading_number: int | list[int] = 1,
         heading_number_explicit: bool = True,
         separate_sections: bool | None = None,
     ) -> None:
         target = self._resolve_target(target)
-        output_str = self.render(
+        output = self.render(
             target=target,
             filters=filters,
             heading_number=heading_number,
             heading_number_explicit=heading_number_explicit,
             separate_sections=separate_sections,
         )
-        if isinstance(target, _ANSITargetConfig):
-            print(output_str)
-        else:
-            _display.browser(output_str)
-        return
+        if isinstance(target, _mdit.target.rich.Config):
+            return _mdit.display.console(output)
+        return _mdit.display.browser(output)
 
     def render(
         self,
-        target: TargetConfigType | None = None,
+        target: TargetConfigInput = None,
         filters: str | list[str] | None = None,
         heading_number: int | list[int] = 1,
         heading_number_explicit: bool = True,
         separate_sections: bool | None = None,
-    ) -> str:
+    ) -> str | RenderableType:
         target = self._resolve_target(target)
         document = self.source(
             target=target,
@@ -139,46 +122,60 @@ class Document:
             heading_number_explicit=heading_number_explicit,
             separate_sections=separate_sections,
         )
-        if isinstance(target, _ANSITargetConfig):
-            return document["index"]
+        if isinstance(target, _mdit.target.rich.Config):
+            return document
         return target.renderer(document)
 
     def source(
         self,
-        target: TargetConfigType | None = None,
+        target: TargetConfigInput = None,
         filters: str | list[str] | None = None,
         heading_number: int | Sequence[int] = 1,
         heading_number_explicit: bool = True,
         separate_sections: bool | None = None,
-    ) -> dict[str, str]:
+    ) -> str | dict[str, str] | RenderableType:
         target = self._resolve_target(target)
         heading_number = list(heading_number) if isinstance(heading_number, Sequence) else [1] * heading_number
-        if isinstance(target, TargetConfig):
-            return self._str_md_multi(
-                target=target,
-                filters=filters,
-                heading_number=heading_number,
-                separate_sections=separate_sections,
-            ) if target.directive_toctree else self._str_md_single(
+        if isinstance(target, _mdit.target.md.Config):
+            if target.directive_toctree:
+                doc = self._str_md_multi(
+                    target=target,
+                    filters=filters,
+                    heading_number=heading_number,
+                    separate_sections=separate_sections,
+                )
+                return doc["index"] if len(doc) == 1 else doc
+            return self._str_md_single(
                 target=target,
                 filters=filters,
                 heading_number=heading_number,
                 heading_number_explicit=heading_number_explicit,
             )
-        return self._str_ansi(
+        return self._source_rich(
             target=target,
             filters=filters,
             heading_number=heading_number,
             heading_number_explicit=heading_number_explicit,
         )
 
+    def depth(
+        self,
+        target: TargetConfigs | None = None,
+        filters: str | list[str] | None = None,
+    ) -> int:
+        section_depths = (
+            doc.depth(target=target, filters=filters)
+            for doc in self.section.elements(target=target, filters=filters, source=False)
+        )
+        return 1 + max(section_depths, default=0)
+
     def _str_md_single(
         self,
-        target: TargetConfigType,
+        target: TargetConfigs,
         filters: str | list[str] | None,
         heading_number: list[int],
         heading_number_explicit: bool,
-    ):
+    ) -> dict[str, str]:
         content = [self.body.source(target=target, filters=filters)]
         for idx, (key, (section, conditions)) in enumerate(self.section.items()):
             if not filters or not conditions or any(filter in conditions for filter in filters):
@@ -213,11 +210,11 @@ class Document:
 
     def _str_md_multi(
         self,
-        target: TargetConfigType,
+        target: MDTargetConfig,
         filters: str | list[str] | None,
         heading_number: list[int],
         separate_sections: bool | None,
-    ):
+    ) -> dict[str, str]:
         heading_level = len(heading_number)
         document = {}
         page = self._initialize_page(heading_level=heading_level, target=target, filters=filters)
@@ -259,13 +256,13 @@ class Document:
         document["index"] = f"{"\n\n".join(page).strip()}\n"
         return document
 
-    def _str_ansi(
+    def _source_rich(
         self,
-        target: _ANSITargetConfig,
+        target: RichTargetConfig,
         filters: str | list[str] | None,
-        heading_number: list[int],
-        heading_number_explicit: bool,
-    ):
+        heading_number: list[int] = 1,
+        heading_number_explicit: bool = True,
+    ) -> RenderableType:
         content = []
         if self.heading:
             with self.heading.temp(
@@ -278,19 +275,19 @@ class Document:
         content.append(self.body.source(target=target, filters=filters))
         for idx, (key, (section, conditions)) in enumerate(self.section.items()):
             if not filters or not conditions or any(filter in conditions for filter in filters):
-                subsection_dict = section.source(
+                subsection = section.source(
                     target=target,
                     filters=filters,
                     heading_number=heading_number + [idx + 1],
                     heading_number_explicit=heading_number_explicit,
                 )
-                content.append(subsection_dict["index"])
+                content.append(subsection)
         footer = self.footer.source(target=target, filters=filters)
         if footer:
             content.append(footer)
-        return {"index": "\n\n".join(content).strip()}
+        return _rich.console.Group(*content)
 
-    def _initialize_page(self, heading_level: int, target: TargetConfigType, filters: str | list[str] | None):
+    def _initialize_page(self, heading_level: int, target: TargetConfigs, filters: str | list[str] | None):
         page = []
         if self.frontmatter and heading_level == 1 and (
             not filters
@@ -301,9 +298,3 @@ class Document:
             if frontmatter:
                 page.append(frontmatter)
         return page
-
-    def _resolve_target(self, target: TargetConfigType | None = None) -> _TargetConfig:
-        target = target or self.default_output_target
-        if isinstance(target, (_TargetConfig, _ANSITargetConfig)):
-            return target
-        return self.target_config[target]

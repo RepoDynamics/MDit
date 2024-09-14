@@ -10,6 +10,10 @@ import pyserials as _ps
 from mdit.data import file as _file
 
 
+_REGISTRY = None
+_SCHEMATA = None
+
+
 def make_registry(
     dynamic: bool = False,
     crawl: bool = True,
@@ -33,6 +37,9 @@ def make_registry(
 
 
 def validate(data: dict, schema_id: str):
+    global _REGISTRY, _SCHEMATA
+    if not _REGISTRY:
+        _REGISTRY, _SCHEMATA = make_registry()
     _ps.validate.jsonschema(
         data=data,
         schema=_SCHEMATA[schema_id],
@@ -41,5 +48,3 @@ def validate(data: dict, schema_id: str):
     )
     return
 
-
-# _REGISTRY, _SCHEMATA = make_registry()
