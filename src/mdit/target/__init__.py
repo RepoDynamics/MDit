@@ -27,6 +27,7 @@ def github(
     directive_list_table: bool = False,
     directive_toctree: bool = False,
     directive_toggle: bool = True,
+    directive_dropdown: bool = False,
     alerts: bool = True,
     picture_theme: bool = True,
     renderer: Callable[[dict | str], str] = _partial(_render.cmarkgfm, unsafe=False),
@@ -49,6 +50,7 @@ def github(
         directive_list_table=directive_list_table,
         directive_toctree=directive_toctree,
         directive_toggle=directive_toggle,
+        directive_dropdown=directive_dropdown,
         alerts=alerts,
         picture_theme=picture_theme,
         fence=fence,
@@ -72,6 +74,7 @@ def pypi(
     directive_list_table: bool = False,
     directive_toctree: bool = False,
     directive_toggle: bool = True,
+    directive_dropdown: bool = False,
     alerts: bool = False,
     picture_theme: bool = False,
     renderer: Callable[[dict | str], str] = _render.readme_renderer,
@@ -95,6 +98,7 @@ def pypi(
         directive_list_table=directive_list_table,
         directive_toctree=directive_toctree,
         directive_toggle=directive_toggle,
+        directive_dropdown=directive_dropdown,
         alerts=alerts,
         picture_theme=picture_theme,
         renderer=renderer,
@@ -117,6 +121,7 @@ def sphinx(
     directive_list_table: bool = True,
     directive_toctree: bool = True,
     directive_toggle: bool = True,
+    directive_dropdown: bool = True,
     alerts: bool = False,
     picture_theme: bool = True,
     renderer: Callable[[dict | str], str] = _partial(
@@ -143,7 +148,6 @@ def sphinx(
         attrs_inline=attrs_inline,
         target_anchor=target_anchor,
         field_list=field_list,
-        fence=fence,
         directive_admo=directive_admo,
         directive_code=directive_code,
         directive_image=directive_image,
@@ -152,17 +156,41 @@ def sphinx(
         directive_list_table=directive_list_table,
         directive_toctree=directive_toctree,
         directive_toggle=directive_toggle,
+        directive_dropdown=directive_dropdown,
         alerts=alerts,
         picture_theme=picture_theme,
+        fence=fence,
         renderer=renderer,
         rich_export=rich_export,
     )
 
 
 def console(
-    admonition: dict | rich.AdmonitionConfig = rich.AdmonitionConfig(),
     code_block: dict | rich.CodeBlockConfig = rich.CodeBlockConfig(),
-    field_list: dict | rich.FieldListConfig = rich.FieldListConfig(),
+    ordered_list: dict | rich.OrderedListConfig = rich.OrderedListConfig(
+        table=rich.TableConfig(box=rich.NamedBox(name="simple"), show_header=False, padding=(0,1,0,0), show_edge=False),
+        marker_column=rich.ColumnConfig(style="rgb(0,150,0) bold", justify="right"),
+        item_column=rich.ColumnConfig(),
+    ),
+    unordered_list: dict | rich.UnorderedListConfig = rich.UnorderedListConfig(
+        table=rich.TableConfig(box=rich.NamedBox(name="simple"), show_header=False, padding=(0,1,0,0), show_edge=False),
+        marker_column=rich.ColumnConfig(style="rgb(0,150,0)"),
+        item_column=rich.ColumnConfig(),
+        marker="•",
+    ),
+    field_list: dict | rich.FieldListConfig = rich.FieldListConfig(
+        table=rich.TableConfig(box=rich.NamedBox(name="simple"), show_header=False, padding=(0,1,0,0), show_edge=False),
+        title_column=rich.ColumnConfig(style="bold"),
+        description_column=rich.ColumnConfig(),
+        colon_column=rich.ColumnConfig(style="rgb(0,150,0)"),
+    ),
+    code_span: dict | rich.TextConfig = rich.TextConfig(
+        style=rich.StyleConfig(color=(255, 255, 255), bgcolor=(70, 70, 70), prefix=" ", suffix=" ")
+    ),
+    dropdown: dict | rich.PanelConfig = rich.PanelConfig(
+        border_style=rich.StyleConfig(bold=True),
+    ),
+    dropdown_class: dict[str, rich.PanelConfig | dict] | None = None,
     heading: Sequence[dict | rich.HeadingConfig] = (
         rich.HeadingConfig(
             inline=rich.InlineHeadingConfig(style=rich.StyleConfig(color=(150, 0, 170), bold=True)),
@@ -189,14 +217,84 @@ def console(
             block=rich.PanelConfig(style_border=rich.StyleConfig(color=(220, 0, 35), bold=True)),
         ),
     ),
-    code_span: dict | rich.TextConfig = rich.TextConfig(
-        style=rich.StyleConfig(color=(255, 255, 255), bgcolor=(70, 70, 70), prefix=" ", suffix=" ")
+    admonition_note: rich.PanelConfig = rich.PanelConfig(
+        title_style=rich.TextConfig(
+            prefix="ℹ️ ",
+            style=rich.StyleConfig(color=(255, 255, 255), bgcolor=(6, 36, 93), bold=True)
+        ),
+    ),
+    admonition_important: rich.PanelConfig = rich.PanelConfig(
+        title_style = rich.TextConfig(
+            prefix="📢 ",
+            style=rich.StyleConfig(color=(255, 255, 255), bgcolor=(101, 42, 2), bold=True)
+        ),
+    ),
+    admonition_hint: rich.PanelConfig = rich.PanelConfig(
+        title_style=rich.TextConfig(
+            prefix="🔎 ",
+            style=rich.StyleConfig(color=(255, 255, 255), bgcolor=(0, 47, 23), bold=True)
+        ),
+    ),
+    admonition_seealso: rich.PanelConfig = rich.PanelConfig(
+        title_style=rich.TextConfig(
+            prefix="↪️ ",
+            style=rich.StyleConfig(color=(255, 255, 255), bgcolor=(0, 47, 23), bold=True)
+        ),
+    ),
+    admonition_tip: rich.PanelConfig = rich.PanelConfig(
+        title_style=rich.TextConfig(
+            prefix="💡 ",
+            style=rich.StyleConfig(color=(255, 255, 255), bgcolor=(0, 47, 23), bold=True)
+        ),
+    ),
+    admonition_attention: rich.PanelConfig = rich.PanelConfig(
+        title_style=rich.TextConfig(
+            prefix="⚠️ ",
+            style=rich.StyleConfig(color=(255, 255, 255), bgcolor=(101, 42, 2), bold=True)
+        ),
+    ),
+    admonition_caution: rich.PanelConfig = rich.PanelConfig(
+        title_style=rich.TextConfig(
+            prefix="❗ ",
+            style=rich.StyleConfig(color=(255, 255, 255), bgcolor=(101, 42, 2), bold=True)
+        ),
+    ),
+    admonition_warning: rich.PanelConfig = rich.PanelConfig(
+        title_style=rich.TextConfig(
+            prefix="🚨 ",
+            style=rich.StyleConfig(color=(255, 255, 255), bgcolor=(101, 42, 2), bold=True)
+        ),
+    ),
+    admonition_danger: rich.PanelConfig = rich.PanelConfig(
+        title_style=rich.TextConfig(
+            prefix="🚩 ",
+            style=rich.StyleConfig(color=(255, 255, 255), bgcolor=(78, 17, 27), bold=True)
+        ),
+    ),
+    admonition_error: rich.PanelConfig = rich.PanelConfig(
+        title_style=rich.TextConfig(
+            prefix="❌ ",
+            style=rich.StyleConfig(color=(255, 255, 255), bgcolor=(78, 17, 27), bold=True)
+        ),
     ),
 ) -> rich.Config:
     return rich.Config(
-        admonition=admonition,
         code_block=code_block,
+        ordered_list=ordered_list,
+        unordered_list=unordered_list,
         field_list=field_list,
         heading=heading,
         code_span=code_span,
+        dropdown=dropdown,
+        dropdown_class=dropdown_class or {},
+        admonition_note=admonition_note,
+        admonition_important=admonition_important,
+        admonition_hint=admonition_hint,
+        admonition_seealso=admonition_seealso,
+        admonition_tip=admonition_tip,
+        admonition_attention=admonition_attention,
+        admonition_caution=admonition_caution,
+        admonition_warning=admonition_warning,
+        admonition_danger=admonition_danger,
+        admonition_error=admonition_error,
     )

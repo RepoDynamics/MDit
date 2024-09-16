@@ -11,7 +11,7 @@ if _TYPE_CHECKING:
     from rich.console import RenderableType
     from mdit.container import Container, MDContainer
     from mdit.element import FrontMatter, Heading
-    from mdit.protocol import TargetConfigs, TargetConfigInput, ContainerInputType, RichTargetConfig, MDTargetConfig
+    from mdit.protocol import TargetConfigs, TargetConfigInput, ContainerContentInputType, RichTargetConfig, MDTargetConfig
 
 
 class Document(_Renderable):
@@ -63,7 +63,7 @@ class Document(_Renderable):
 
     def open_section(
         self,
-        heading: Heading | MDContainer | ContainerInputType,
+        heading: Heading | MDContainer | ContainerContentInputType,
         key: str | int | None = None,
         conditions: list[str] | None = None,
     ):
@@ -150,7 +150,7 @@ class Document(_Renderable):
                 filters=filters,
                 heading_number=heading_number,
                 heading_number_explicit=heading_number_explicit,
-            )
+            )["index"]
         return self._source_rich(
             target=target,
             filters=filters,
@@ -204,7 +204,7 @@ class Document(_Renderable):
                 # so the heading is added above the toggle
                 page.append(heading)
             # Otherwise <details> is used, which displays the title
-            page.append(_mdit.element.toggle(title=heading, content=page_content).source(target=target))
+            page.append(_mdit.element.toggle(page_content, title=heading).source(target=target))
         return {"index": "\n\n".join(page).strip()}
 
 
@@ -228,7 +228,7 @@ class Document(_Renderable):
             toctree_children = [
                 f"{key}/index" if self.toctree_dirhtml else key for key in self.section.keys()
             ]
-            toctree = _elem.toctree(content=toctree_children, **self.toctree_args)
+            toctree = _elem.toctree(*toctree_children, **self.toctree_args)
             page.append(toctree.source(target=target, filters=filters))
         content = self.body.source(target=target, filters=filters)
         if content:

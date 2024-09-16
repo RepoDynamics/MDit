@@ -36,11 +36,12 @@ class MDITRenderable(_Protocol):
 
 
 ContainerContentType = Stringable | MDITRenderable
-ContentConditionType = str | list[str] | tuple[str] | None
-ContainerInputType = (
+ContainerContentConditionType = str | list[str] | tuple[str] | None
+ContainerContentSingleInputType = (
     ContainerContentType
-    | list[ContainerContentType | tuple[ContainerContentType, ContentConditionType]]
-    | dict[str | int, ContainerContentType | tuple[ContainerContentType, ContentConditionType]]
+    | tuple[ContainerContentType, ContainerContentConditionType]
+    | tuple[ContainerContentType, ContainerContentConditionType, str | int]
+    | dict[str | int, ContainerContentType | tuple[ContainerContentType, ContainerContentConditionType]]
     | None
 )
-
+ContainerContentInputType = ContainerContentSingleInputType | list[ContainerContentSingleInputType]

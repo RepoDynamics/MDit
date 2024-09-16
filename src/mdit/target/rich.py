@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING as _TYPE_CHECKING
-from dataclasses import dataclass as _dataclass, asdict as _asdict
+from typing import TYPE_CHECKING as _TYPE_CHECKING, Literal as _Literal
 
 import pydantic as _pydantic
 from rich import (
@@ -15,49 +14,59 @@ from rich import (
     table as _table,
     text as _text,
     syntax as _syntax,
+    theme as _theme,
 )
 import pycolorit as _pcit
 
-if _TYPE_CHECKING:
-    from typing import Literal, IO, Callable, Sequence, Iterable
-    from datetime import datetime
-    from rich.box import Box
-    from rich.style import Style, StyleType
-    from rich.align import AlignMethod
-    from rich.padding import PaddingDimensions
-    from rich.color import Color
-    from rich.theme import Theme
-    from rich.emoji import EmojiVariant
-    from rich._log_render import FormatTimeCallable
-    from rich.console import HighlighterType, Console, RenderableType, JustifyMethod, OverflowMethod, Group
-    from rich.rule import Rule
-    from rich.table import Column, Table, VerticalAlignMethod
-    from rich.text import Text
-    from rich.panel import Panel
-    from rich.syntax import Syntax
-    from pygments.lexer import Lexer
 
-BoxName = Literal[
-    "ascii",
-    "ascii2",
-    "ascii_double_head",
-    "square",
-    "square_double_head",
-    "minimal",
-    "minimal_heavy_head",
-    "minimal_double_head",
-    "simple",
-    "simple_head",
-    "simple_heavy",
-    "horizontals",
-    "rounded",
-    "heavy",
-    "heavy_edge",
-    "heavy_head",
-    "double",
-    "double_edge",
-    "markdown",
-]
+from typing import Literal, IO, Callable, Sequence, Iterable
+from datetime import datetime
+from rich.style import Style
+from rich.align import AlignMethod
+from rich.padding import PaddingDimensions
+from rich.emoji import EmojiVariant
+from rich._log_render import FormatTimeCallable
+from rich.console import HighlighterType, Console, RenderableType, JustifyMethod, OverflowMethod, Group
+from rich.rule import Rule
+from rich.table import Column, Table, VerticalAlignMethod
+from rich.text import Text
+from rich.panel import Panel
+from rich.syntax import Syntax
+from pygments.lexer import Lexer
+
+
+class NamedBox(_pydantic.BaseModel):
+    name: _Literal[
+        "ascii",
+        "ascii2",
+        "ascii_double_head",
+        "square",
+        "square_double_head",
+        "minimal",
+        "minimal_heavy_head",
+        "minimal_double_head",
+        "simple",
+        "simple_head",
+        "simple_heavy",
+        "horizontals",
+        "rounded",
+        "heavy",
+        "heavy_edge",
+        "heavy_head",
+        "double",
+        "double_edge",
+        "markdown",
+    ]
+
+    def make(self) -> _box.Box:
+        return getattr(_box, self.name.upper())
+
+class BoxConfig(_pydantic.BaseModel):
+    box: str
+    ascii: bool = False
+
+    def make(self) -> _box.Box:
+        return _box.Box(self.box, ascii=self.ascii)
 
 
 class StyleConfig(_pydantic.BaseModel):
@@ -68,8 +77,8 @@ class StyleConfig(_pydantic.BaseModel):
     - [Rich API Reference](https://rich.readthedocs.io/en/stable/reference/style.html)
     - [Rich Styles Documentation](https://rich.readthedocs.io/en/stable/style.html)
     """
-    color: tuple[int, int, int] | str | Color | None = None
-    bgcolor: tuple[int, int, int] | str | Color | None = None
+    color: tuple[int, int, int] | str | None = None
+    bgcolor: tuple[int, int, int] | str | None = None
     bold: bool | None = None
     italic: bool | None = None
     dim: bool | None = None
@@ -83,19 +92,17 @@ class StyleConfig(_pydantic.BaseModel):
     conceal: bool | None = None
     frame: bool | None = None
     encircle: bool | None = None
+    link: str | None = None
 
-    def make(self, link: str | None = None, **overrides) -> Style:
-        kwargs = self.model_dump() | {"link": link} | overrides
+    def make(self, **overrides) -> Style:
+        kwargs = self.model_dump() | overrides
         for key in ("color", "bgcolor"):
-            if isinstance(kwargs[key], tuple):
-                kwargs[key] = _color.Color.from_rgb(*kwargs[key])
-            elif isinstance(kwargs[key], str):
-                kwargs[key] = _color.Color.from_rgb(*_pcit.color.css(kwargs[key]).rgb(ubyte=True)[:3])
+            kwargs[key] = make_rich_color(kwargs[key]) if kwargs[key] else None
         return _style.Style(**kwargs)
 
     @_pydantic.field_validator('color', 'bgcolor')
     @classmethod
-    def _validate_colors(cls, color: tuple[int, int, int] | str | Color | None) -> Color | None:
+    def _validate_colors(cls, color: tuple[int, int, int] | str | None) -> tuple[int, int, int] | str | None:
         if isinstance(color, tuple):
             assert all(0 <= c <= 255 for c in color), "Color values must be between 0 and 255."
         if isinstance(color, str):
@@ -112,13 +119,13 @@ class ConsoleConfig(_pydantic.BaseModel):
     force_jupyter: bool | None = None
     force_interactive: bool | None = None
     soft_wrap: bool = False
-    theme: Theme | None = None
+    theme: dict[str, StyleConfig | str] | None = None
     stderr: bool = False
     file: IO[str] | None = None
     quiet: bool = False
     width: int | None = None
     height: int | None = None
-    style: StyleConfig | StyleType = None
+    style: StyleConfig | str = None
     no_color: bool | None = None
     tab_size: int = 8
     record: bool = False
@@ -135,10 +142,22 @@ class ConsoleConfig(_pydantic.BaseModel):
     get_datetime: Callable[[], datetime] | None = None
     get_time: Callable[[], float] = None
 
+    @_pydantic.field_validator('file', mode="plain")
+    @classmethod
+    def _validate_file(cls, file: IO[str] | None) -> IO[str] | None:
+        return file
+
     def make(self, **overrides) -> Console:
         kwargs = self.model_dump() | overrides
-        if isinstance(kwargs["style"], StyleConfig):
-            kwargs["style"] = kwargs["style"].make()
+        if kwargs["theme"]:
+            kwargs["theme"] = _theme.Theme(
+                {
+                    name: style if isinstance(style, str) else StyleConfig(**style).make()
+                    for name, style in kwargs["theme"].items()
+                }
+            )
+        if isinstance(kwargs["style"], dict):
+            kwargs["style"] = StyleConfig(**kwargs["style"]).make()
         return _console.Console(**kwargs)
 
 
@@ -151,7 +170,7 @@ class TextConfig(_pydantic.BaseModel):
     """
     prefix: str = ""
     suffix: str = ""
-    style: StyleConfig | StyleType = "none"
+    style: StyleConfig | str = "none"
     justify: AlignMethod = "left"
     overflow: Literal["crop", "fold", "ellipsis"] | None = None
     no_wrap: bool | None = None
@@ -160,10 +179,11 @@ class TextConfig(_pydantic.BaseModel):
 
     def make(self, text: str | Text, **overrides) -> Text:
         kwargs = self.model_dump(exclude={"prefix", "suffix"}) | overrides
-        if isinstance(kwargs["style"], StyleConfig):
-            kwargs["style"] = kwargs["style"].make()
+        if isinstance(kwargs["style"], dict):
+            kwargs["style"] = StyleConfig(**kwargs["style"]).make()
         if isinstance(text, str):
             return _text.Text(f"{self.prefix}{text}{self.suffix}", style=kwargs["style"])
+        print(text, type(text))
         return _text.Text.assemble(self.prefix, text, self.suffix, style=kwargs["style"])
 
 
@@ -212,14 +232,14 @@ class RuleConfig(_pydantic.BaseModel):
     - [Rich Rule API Reference](https://rich.readthedocs.io/en/stable/reference/rule.html)
     """
     characters: str = "─"
-    style: StyleConfig | StyleType = "rule.line"
+    style: StyleConfig | str = "rule.line"
     align: AlignMethod = "center"
     end: str = "\n"
 
     def make(self, title: str | Text = "", **overrides) -> Rule:
         kwargs = self.model_dump() | {"title": title} | overrides
-        if isinstance(kwargs["style"], StyleConfig):
-            kwargs["style"] = kwargs["style"].make()
+        if isinstance(kwargs["style"], dict):
+            kwargs["style"] = StyleConfig(**kwargs["style"]).make()
         return _rule.Rule(**kwargs)
 
 
@@ -232,11 +252,11 @@ class PanelConfig(_pydantic.BaseModel):
     - [Rich Boxes Docs](https://rich.readthedocs.io/en/stable/appendix/box.html)
     - [Rich Boxes Code](https://github.com/Textualize/rich/blob/fd981823644ccf50d685ac9c0cfe8e1e56c9dd35/rich/box.py)
     """
-    box: BoxName | Box = "rounded"
-    style: StyleConfig | StyleType = "none"
-    border_style: StyleConfig | StyleType = "none"
-    title_style: StyleConfig | TextConfig | StyleType = "none"
-    subtitle_style: StyleConfig | TextConfig | StyleType = "none"
+    box: NamedBox | BoxConfig = NamedBox(name="rounded")
+    style: StyleConfig | str = "none"
+    border_style: StyleConfig | str = "none"
+    title_style: StyleConfig | TextConfig | str = "none"
+    subtitle_style: StyleConfig | TextConfig | str = "none"
     title_align: AlignMethod = "left"
     subtitle_align: AlignMethod = "right"
     padding: PaddingDimensions = 1
@@ -247,48 +267,29 @@ class PanelConfig(_pydantic.BaseModel):
     safe_box: bool = False
 
     def make(self, content: RenderableType, title: str | Text = None, subtitle: str | Text = None, **overrides) -> Panel:
-        kwargs = self.model_dump(
-            exclude={
-                "title_style",
-                "subtitle_style",
-                "title_prefix",
-                "title_suffix",
-                "subtitle_prefix",
-                "subtitle_suffix"
-            }
-        ) | overrides
-        if isinstance(kwargs["box"], str):
-            kwargs["box"] = getattr(_box, self.box.upper())
+        excluded_keys = {"box", "title_style", "subtitle_style"}
+        kwargs = self.model_dump(exclude=excluded_keys) | {
+            k: v for k, v in overrides.items() if k not in excluded_keys
+        }
+        kwargs["box"] = overrides.get("box", self.box).make()
         for key in ("style", "border_style"):
-            if isinstance(kwargs[key], StyleConfig):
-                kwargs[key] = kwargs[key].make()
+            val = kwargs[key]
+            kwargs[key] = StyleConfig(**val).make() if isinstance(val, dict) else val
         for text, text_type in ((title, "title"), (subtitle, "subtitle")):
             if not text:
                 continue
-            text_style = getattr(self, f"{text_type}_style")
+            key = f"{text_type}_style"
+            text_style = overrides.get(key, getattr(self, key))
             if isinstance(text_style, TextConfig):
                 text = text_style.make(text)
             else:
                 text = TextConfig(style=text_style).make(text)
             kwargs[text_type] = text
-        return _panel.Panel(content, **kwargs)
-
-
-class AdmonitionConfig(_pydantic.BaseModel):
-    note: PanelConfig = PanelConfig(title_prefix=" ℹ️", border_style=StyleConfig(color=(6, 36, 93), bold=True), title_style=StyleConfig(color=(255, 255, 255), bgcolor=(6, 36, 93), bold=True)),
-    important: PanelConfig = PanelConfig(title_prefix=" ❗", border_style=StyleConfig(color=(101, 42, 2), bold=True), title_style=StyleConfig(color=(255, 255, 255), bgcolor=(101, 42, 2), bold=True)),
-    hint: PanelConfig = PanelConfig(title_prefix=" 💡", border_style=StyleConfig(color=(0, 47, 23), bold=True), title_style=StyleConfig(color=(255, 255, 255), bgcolor=(0, 47, 23), bold=True)),
-    seealso: PanelConfig = PanelConfig(title_prefix=" ↪️", border_style=StyleConfig(color=(0, 47, 23), bold=True), title_style=StyleConfig(color=(255, 255, 255), bgcolor=(0, 47, 23), bold=True)),
-    tip: PanelConfig = PanelConfig(title_prefix=" 💡", border_style=StyleConfig(color=(0, 47, 23), bold=True), title_style=StyleConfig(color=(255, 255, 255), bgcolor=(0, 47, 23), bold=True)),
-    attention: PanelConfig = PanelConfig(title_prefix=" ⚠️", border_style=StyleConfig(color=(101, 42, 2), bold=True), title_style=StyleConfig(color=(255, 255, 255), bgcolor=(101, 42, 2), bold=True)),
-    caution: PanelConfig = PanelConfig(title_prefix=" ⚠️", border_style=StyleConfig(color=(101, 42, 2), bold=True), title_style=StyleConfig(color=(255, 255, 255), bgcolor=(101, 42, 2), bold=True)),
-    warning: PanelConfig = PanelConfig(title_prefix=" ⚠️", border_style=StyleConfig(color=(101, 42, 2), bold=True), title_style=StyleConfig(color=(255, 255, 255), bgcolor=(101, 42, 2), bold=True)),
-    danger: PanelConfig = PanelConfig(title_prefix=" 🚨", border_style=StyleConfig(color=(78, 17, 27), bold=True), title_style=StyleConfig(color=(255, 255, 255), bgcolor=(78, 17, 27), bold=True)),
-    error: PanelConfig = PanelConfig(title_prefix=" ❌", border_style=StyleConfig(color=(78, 17, 27), bold=True), title_style=StyleConfig(color=(255, 255, 255), bgcolor=(78, 17, 27), bold=True)),
+        return _panel.Panel(renderable=content, **kwargs)
 
 
 class InlineHeadingConfig(_pydantic.BaseModel):
-    style: StyleConfig | TextConfig | StyleType = "bold"
+    style: StyleConfig | TextConfig | str = "bold"
     rule: RuleConfig = RuleConfig()
 
     def make(self, title: str | Text) -> Rule:
@@ -341,9 +342,9 @@ class CodeBlockConfig(_pydantic.BaseModel):
 
 
 class ColumnConfig(_pydantic.BaseModel):
-    header_style: StyleConfig | StyleType = ""
-    footer_style: StyleConfig | StyleType = ""
-    style: StyleConfig | StyleType = ""
+    header_style: StyleConfig | str = ""
+    footer_style: StyleConfig | str = ""
+    style: StyleConfig | str = ""
     justify: JustifyMethod = "left"
     vertical: VerticalAlignMethod = "top"
     overflow: OverflowMethod = "ellipsis"
@@ -360,15 +361,15 @@ class ColumnConfig(_pydantic.BaseModel):
     ) -> Column:
         kwargs = self.model_dump() | {"header": header, "footer": footer}
         for key in ("header_style", "footer_style", "style"):
-            if isinstance(kwargs[key], StyleConfig):
-                kwargs[key] = kwargs[key].make()
+            if isinstance(kwargs[key], dict):
+                kwargs[key] = StyleConfig(**kwargs[key]).make()
         return _table.Column(**kwargs)
 
 
 class TableConfig(_pydantic.BaseModel):
     width: int | None = None
     min_width: int | None = None
-    box: BoxName | Box = "heavy_head"
+    box: NamedBox | BoxConfig = NamedBox(name="heavy_head")
     safe_box: bool = False
     padding: PaddingDimensions = (0, 1)
     collapse_padding: bool = False
@@ -379,13 +380,13 @@ class TableConfig(_pydantic.BaseModel):
     show_edge: bool = True
     show_lines: bool = False
     leading: int = 0
-    style: StyleConfig | StyleType = "none"
-    row_styles: Iterable[StyleConfig | StyleType] = None
-    header_style: StyleConfig | StyleType = "table.header"
-    footer_style: StyleConfig | StyleType = "table.footer"
-    border_style: StyleConfig | StyleType = None
-    title_style: TextConfig | StyleConfig | StyleType = None
-    caption_style: TextConfig | StyleConfig | StyleType = None
+    style: StyleConfig | str = "none"
+    row_styles: Iterable[StyleConfig | str] = None
+    header_style: StyleConfig | str = "table.header"
+    footer_style: StyleConfig | str = "table.footer"
+    border_style: StyleConfig | str = None
+    title_style: TextConfig | StyleConfig | str = None
+    caption_style: TextConfig | StyleConfig | str = None
     title_justify: JustifyMethod = "center"
     caption_justify: JustifyMethod = "center"
     highlight: bool = False
@@ -397,22 +398,22 @@ class TableConfig(_pydantic.BaseModel):
         caption: str | Text | None = None,
         **overrides,
     ) -> Table:
-        kwargs = self.model_dump() | overrides
-        if isinstance(kwargs["box"], str):
-            kwargs["box"] = getattr(_box, self.box.upper())
+        excluded_keys = {"box", "title_style", "caption_style"}
+        kwargs = self.model_dump(exclude=excluded_keys) | overrides
+        kwargs["box"] = overrides.get("box", self.box).make()
         for style_key in (
             "style",
             "header_style",
             "footer_style",
             "border_style",
         ):
-            if isinstance(kwargs[style_key], StyleConfig):
-                kwargs[style_key] = kwargs[style_key].make()
+            if isinstance(kwargs[style_key], dict):
+                kwargs[style_key] = StyleConfig(**kwargs[style_key]).make()
         for text, text_key, text_style_key in (
             (title, "title", "title_style"),
             (caption, "caption", "caption_style")
         ):
-            style = kwargs[text_style_key]
+            style = overrides.get(text_style_key, getattr(self, text_style_key))
             if isinstance(style, TextConfig):
                 kwargs[text_style_key] = style.style.make()
             elif isinstance(style, StyleConfig):
@@ -425,55 +426,78 @@ class TableConfig(_pydantic.BaseModel):
                 kwargs[text_key] = text
         if kwargs["row_styles"]:
             kwargs["row_styles"] = [
-                style.make() if isinstance(style, StyleConfig) else style for style in kwargs["row_styles"]
+                StyleConfig(**style).make() if isinstance(style, dict) else style for style in kwargs["row_styles"]
             ]
         return _table.Table(*headers, **kwargs)
 
 
 class FieldListConfig(_pydantic.BaseModel):
-    table: TableConfig = TableConfig(box="simple", show_header=False, padding=(0,1,1,0), show_edge=False)
-    title_column: ColumnConfig = ColumnConfig(style="bold")
-    description_column: ColumnConfig = ColumnConfig()
-    colon_column: ColumnConfig = ColumnConfig(style="rgb(0,150,0)")
+    table: TableConfig
+    title_column: ColumnConfig
+    description_column: ColumnConfig
+    colon_column: ColumnConfig
 
     def make(self, items: Sequence[tuple[RenderableType, RenderableType]]) -> Table:
         headers = [self.title_column.make(), self.colon_column.make(), self.description_column.make()]
-        table = self.table.make(*headers, rows=items)
+        table = self.table.make(*headers)
         for item in items:
-            table.add_row(item[0], item[1])
+            table.add_row(item[0], ":", item[1])
+        return table
+
+
+class OrderedListConfig(_pydantic.BaseModel):
+    table: TableConfig
+    marker_column: ColumnConfig
+    item_column: ColumnConfig
+    number_suffix: str = "."
+
+    def make(self, *items: RenderableType, start: int = 1) -> Table:
+        headers = [self.marker_column.make(), self.item_column.make()]
+        table = self.table.make(*headers)
+        for idx, item in enumerate(items):
+            table.add_row(f"{start + idx}{self.number_suffix}", item)
+        return table
+
+
+class UnorderedListConfig(_pydantic.BaseModel):
+    table: TableConfig
+    marker_column: ColumnConfig
+    item_column: ColumnConfig
+    marker: str = "•"
+
+    def make(self, *items: RenderableType) -> Table:
+        headers = [self.marker_column.make(), self.item_column.make()]
+        table = self.table.make(*headers)
+        for item in items:
+            table.add_row(self.marker, item)
         return table
 
 
 class Config(_pydantic.BaseModel):
-    admonition: AdmonitionConfig = AdmonitionConfig()
-    code_block: CodeBlockConfig = CodeBlockConfig()
-    field_list: FieldListConfig = FieldListConfig()
-    heading: Sequence[HeadingConfig] = (
-        HeadingConfig(
-            inline=InlineHeadingConfig(style=StyleConfig(color=(150, 0, 170), bold=True)),
-            block=PanelConfig(style_border=StyleConfig(color=(150, 0, 170), bold=True)),
-        ),
-        HeadingConfig(
-            inline=InlineHeadingConfig(style=StyleConfig(color=(25, 100, 175), bold=True)),
-            block=PanelConfig(style_border=StyleConfig(color=(25, 100, 175), bold=True)),
-        ),
-        HeadingConfig(
-            inline=InlineHeadingConfig(style=StyleConfig(color=(100, 160, 0), bold=True)),
-            block=PanelConfig(style_border=StyleConfig(color=(100, 160, 0), bold=True)),
-        ),
-        HeadingConfig(
-            inline=InlineHeadingConfig(style=StyleConfig(color=(200, 150, 0), bold=True)),
-            block=PanelConfig(style_border=StyleConfig(color=(200, 150, 0), bold=True)),
-        ),
-        HeadingConfig(
-            inline=InlineHeadingConfig(style=StyleConfig(color=(240, 100, 0), bold=True)),
-            block=PanelConfig(style_border=StyleConfig(color=(240, 100, 0), bold=True)),
-        ),
-        HeadingConfig(
-            inline=InlineHeadingConfig(style=StyleConfig(color=(220, 0, 35), bold=True)),
-            block=PanelConfig(style_border=StyleConfig(color=(220, 0, 35), bold=True)),
-        ),
-    )
-    code_span: TextConfig = TextConfig(
-        style=StyleConfig(color=(255, 255, 255), bgcolor=(70, 70, 70), prefix=" ", suffix=" ")
-    )
+    code_block: CodeBlockConfig
+    field_list: FieldListConfig
+    ordered_list: OrderedListConfig
+    unordered_list: UnorderedListConfig
+    heading: Sequence[HeadingConfig]
+    code_span: TextConfig
+    dropdown: PanelConfig
+    admonition_note: PanelConfig
+    admonition_important: PanelConfig
+    admonition_hint: PanelConfig
+    admonition_seealso: PanelConfig
+    admonition_tip: PanelConfig
+    admonition_attention: PanelConfig
+    admonition_caution: PanelConfig
+    admonition_warning: PanelConfig
+    admonition_danger: PanelConfig
+    admonition_error: PanelConfig
+    dropdown_class: dict[str, PanelConfig] = {}
+
+
+def make_rich_color(color: str | tuple[int, int, int]) -> _color.Color:
+    return _color.Color.from_rgb(*make_color_tuple(color))
+
+def make_color_tuple(color: str | tuple[int, int, int]) -> tuple[int, int, int]:
+    if isinstance(color, tuple):
+        return color
+    return tuple(_pcit.color.css(color).rgb(ubyte=True)[:3])

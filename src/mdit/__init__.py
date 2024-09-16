@@ -17,7 +17,7 @@ from mdit import render, target, element, parse, protocol, template
 
 if _TYPE_CHECKING:
     from typing import Callable
-    from mdit.protocol import ContainerContentType, ContainerInputType, Stringable, TargetConfig, TargetConfigs
+    from mdit.protocol import ContainerContentType, ContainerContentInputType, ContainerContentSingleInputType, Stringable, TargetConfig, TargetConfigs, MDTargetConfig, RichTargetConfig, ContainerContentInputType
 
 
 def generate(config: dict | list):
@@ -25,23 +25,41 @@ def generate(config: dict | list):
 
 
 def document(
-    heading: element.Heading | ContainerInputType | None = None,
-    body: ContainerInputType = None,
+    heading: element.Heading | MDContainer | ContainerContentInputType = None,
+    body: Sequence[ContainerContentInputType] = None,
     section: Container | None = None,
-    footer: ContainerInputType = None,
+    footer: ContainerContentInputType = None,
     frontmatter: dict | element.FrontMatter | None = None,
     frontmatter_conditions: list[str] | None = None,
     separate_sections: bool = False,
+    current_section_key: list[str | int] | None = None,
     toctree_args: dict[str, str] | None = None,
     toctree_dirhtml: bool = True,
-    target_config_md: dict[str, TargetConfig | dict] | None = None,
-    target_config_ansi: dict[str, ANSITargetConfig | dict] | None = None,
-    default_output_target: str = "sphinx",
+    target_configs_md: dict[str, MDTargetConfig | dict] | None = None,
+    target_configs_rich: dict[str, RichTargetConfig | dict] | None = None,
+    target_default: str = "sphinx",
     deep_section_generator: Callable[[Document], str] | None = None,
+    content_separator_heading: str = "",
 ):
+    # Process target configs
+    target_configs = {}
+    for key, config in (target_configs_md or {}).items():
+        config_obj = config if isinstance(config, protocol.MDTargetConfig) else target.md.Config(**config)
+        target_configs[key] = config_obj
+    for key, config in (target_configs_rich or {}).items():
+        config_obj = config if isinstance(config, protocol.RichTargetConfig) else target.rich.Config(**config)
+        if key in target_configs:
+            raise ValueError(f"Target config key '{key}' already exists.")
+        target_configs[key] = config_obj
+    # Process heading
     if heading and not isinstance(heading, element.Heading):
-        heading = element.heading(content=heading, level=1)
-    body = container(body, "\n\n")
+        heading = element.heading(
+            heading,
+            content_separator=content_separator_heading,
+            target_configs=target_configs,
+            target_default=target_default,
+        )
+    body = container(body, content_separator="\n\n")
     if isinstance(section, Container):
         pass
     elif not section:
@@ -52,18 +70,9 @@ def document(
         section = section_container(*section)
     else:
         section = section_container(section)
-    footer = container(footer, "\n\n")
+    footer = container(footer, content_separator="\n\n")
     if isinstance(frontmatter, dict):
         frontmatter = element.frontmatter(frontmatter)
-    target_config = {}
-    for key, config in (target_config_md or {}).items():
-        config_obj = config if isinstance(config, protocol.TargetConfig) else target.custom(**config)
-        target_config[key] = config_obj
-    for key, config in (target_config_ansi or {}).items():
-        config_obj = config if isinstance(config, protocol.ANSITargetConfig) else target.console(**config)
-        if key in target_config:
-            raise ValueError(f"Target config key '{key}' already exists.")
-        target_config[key] = config_obj
     return Document(
         heading=heading,
         body=body,
@@ -72,17 +81,86 @@ def document(
         frontmatter=frontmatter,
         frontmatter_conditions=frontmatter_conditions,
         separate_sections=separate_sections,
+        current_section_key=current_section_key,
         toctree_args=toctree_args,
         toctree_dirhtml=toctree_dirhtml,
-        target_configs=target_config,
-        target_default=default_output_target,
+        target_configs=target_configs,
+        target_default=target_default,
         deep_section_generator=deep_section_generator,
+    )
+
+def block_container(
+    *contents: ContainerContentInputType,
+    html_container: Stringable | None = None,
+    html_container_attrs: dict | None = None,
+    html_container_conditions: list[str] | None = None,
+    target_configs: TargetConfigs = None,
+    target_default: str = "sphinx",
+) -> MDContainer:
+    return container(
+        *contents,
+        content_separator="\n\n",
+        html_container=html_container,
+        html_container_attrs=html_container_attrs,
+        html_container_conditions=html_container_conditions,
+        target_configs=target_configs,
+        target_default=target_default,
+    )
+
+
+def inline_container(
+    *contents: ContainerContentInputType,
+    separator: str = "",
+    html_container: Stringable | None = None,
+    html_container_attrs: dict | None = None,
+    html_container_conditions: list[str] | None = None,
+    target_configs: TargetConfigs = None,
+    target_default: str = "sphinx",
+) -> MDContainer:
+    return container(
+        *contents,
+        content_separator=separator,
+        html_container=html_container,
+        html_container_attrs=html_container_attrs,
+        html_container_conditions=html_container_conditions,
+        target_configs=target_configs,
+        target_default=target_default,
     )
 
 
 def container(
-    *contents: ContainerInputType | MDContainer,
-    content_seperator: str = "\n\n",
+    *contents: ContainerContentInputType,
+    content_separator: str,
+    html_container: Stringable | None = None,
+    html_container_attrs: dict | None = None,
+    html_container_conditions: list[str] | None = None,
+    target_configs: TargetConfigs = None,
+    target_default: str = "sphinx",
+) -> MDContainer:
+    container_ = MDContainer(
+        content_separator=content_separator,
+        html_container=html_container,
+        html_container_attrs=html_container_attrs,
+        html_container_conditions=html_container_conditions,
+        target_configs=target_configs,
+        target_default=target_default,
+    )
+    container_.extend(list(contents))
+    return container_
+
+
+def section_container(
+    *unlabeled_contents: ContainerContentInputType,
+    **labeled_contents: ContainerContentInputType,
+) -> Container:
+    container_ = Container()
+    container_.extend(*unlabeled_contents, **labeled_contents)
+    return container_
+
+
+def _to_container(
+    contents: list[ContainerContentSingleInputType],
+    content_separator: str,
     html_container: Stringable | None = None,
     html_container_attrs: dict | None = None,
     html_container_conditions: list[str] | None = None,
@@ -92,29 +170,12 @@ def container(
     if len(contents) == 1 and isinstance(contents[0], MDContainer):
         return contents[0]
     container_ = MDContainer(
-        content_separator=content_seperator,
+        content_separator=content_separator,
         html_container=html_container,
         html_container_attrs=html_container_attrs,
         html_container_conditions=html_container_conditions,
         target_configs=target_configs,
         target_default=target_default,
     )
-    if not contents:
-        return container_
-    for content in contents:
-        if isinstance(content, dict):
-            container_.extend(**content)
-        elif isinstance(content, (list, tuple)):
-            container_.append(*content)
-        else:
-            container_.append(content)
-    return container_
-
-
-def section_container(
-    *unlabeled_contents: ContainerContentType,
-    **labeled_contents: ContainerContentType,
-) -> Container:
-    container_ = Container()
-    container_.extend(*unlabeled_contents, **labeled_contents)
+    container_.extend(contents)
     return container_

@@ -54,7 +54,7 @@ class DocumentGenerator:
             separate_sections=config.get("separate_sections", False),
             toctree_args=config.get("toctree_args"),
             toctree_dirhtml=config.get("toctree_dirhtml", True),
-            default_output_target=config.get("default_output_target", "sphinx"),
+            target_default=config.get("default_output_target", "sphinx"),
         )
 
     def generate_template(self, config: dict):
@@ -83,9 +83,9 @@ class DocumentGenerator:
                         inline_elements.append(
                             (self.generate_element(inline_element), conditions)
                         )
-                inline_container = _mdit.container(*inline_elements, content_seperator="")
+                inline_container = _mdit.container(*inline_elements, content_separator="")
                 elements.append(inline_container)
-        return _mdit.container(*elements, content_seperator="\n\n")
+        return _mdit.container(*elements, content_separator="\n\n")
 
     def generate_element(self, element: dict):
         elem_class = element.pop("class")
@@ -122,7 +122,7 @@ class DocumentGenerator:
     def elem_admonition(self, config: dict):
         title = self.generate_container(config.pop("title"))
         content = self.generate_container(config.pop("content"))
-        return _elem.admonition(title=title, content=content, **config)
+        return _elem.admonition(content, title=title, **config)
 
     def elem_attribute(self, config: dict):
         content = self.generate_container(config.pop("content"))
@@ -137,7 +137,7 @@ class DocumentGenerator:
         else:
             content = self.generate_container(config)
             config = {}
-        return _elem.heading(level=1, content=content, **config)
+        return _elem.heading(content, level=1, **config)
 
     @staticmethod
     def _get_elem_generator(module, elem_id, class_name):

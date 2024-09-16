@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING as _TYPE_CHECKING
+from typing import TYPE_CHECKING as _TYPE_CHECKING, Literal as _Literal, Callable as _Callable
 import textwrap as _textwrap
 
 import pydantic as _pydantic
-import rich as _rich
+from rich import console as _console, terminal_theme as _terminal_theme
+import pycolorit as _pcit
+
+from mdit.target.rich import ConsoleConfig as _RichConsoleConfig, make_color_tuple as _make_color_tuple
 
 if _TYPE_CHECKING:
-    from typing import Literal, Callable
-    from rich.terminal_theme import TerminalTheme
-    from mdit.target.rich import ConsoleConfig as RichConsoleConfig
     from rich.console import RenderableType
 
 
@@ -62,11 +62,26 @@ RICH_SVG_TEMPLATE = _textwrap.dedent(
 )
 
 
+class RichTerminalThemeConfig(_pydantic.BaseModel):
+    background: tuple[int, int, int] | str
+    foreground: tuple[int, int, int] | str
+    normal: list[tuple[int, int, int] | str]
+    bright: list[tuple[int, int, int] | str] | None = None
+
+    def make(self, **overrides) -> _terminal_theme.TerminalTheme:
+        kwargs = self.model_dump() | overrides
+        for key in ("background", "foreground"):
+            kwargs[key] = _make_color_tuple(kwargs[key])
+        for key in ("normal", "bright"):
+            kwargs[key] = [_make_color_tuple(c) for c in kwargs[key]] if kwargs[key] else None
+        return _terminal_theme.TerminalTheme(**kwargs)
+
+
 class RichExportConfig(_pydantic.BaseModel):
-    console: RichConsoleConfig | None = None
+    console: _RichConsoleConfig | None = None
 
     def make_console(self):
-        return self.console.make(quiet=True, record=True) if self.console else _rich.console.Console(
+        return self.console.make(quiet=True, record=True) if self.console else _console.Console(
             quiet=True, record=True
         )
 
@@ -78,7 +93,7 @@ class RichExportHTMLConfig(RichExportConfig):
     ----------
     - [Rich API Reference](https://rich.readthedocs.io/en/stable/reference/console.html#rich.console.Console.export_html)
     """
-    theme: TerminalTheme | None = None
+    theme: RichTerminalThemeConfig | None = None
     inline_styles: bool = True
     code_format: str = """<pre style="font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace"><code style="font-family:inherit">{code}</code></pre>"""
 
@@ -96,7 +111,7 @@ class RichExportSVGConfig(RichExportConfig):
     - [Rich API Reference](https://rich.readthedocs.io/en/stable/reference/console.html#rich.console.Console.export_svg)
     """
     title: str | None = ""
-    theme: TerminalTheme | None = None
+    theme: RichTerminalThemeConfig | None = None
     code_format: str = RICH_SVG_TEMPLATE
     font_aspect_ratio: float = 0.61
     unique_id: str | None = None
@@ -142,8 +157,9 @@ class Config(_pydantic.BaseModel):
     directive_list_table: bool
     directive_toctree: bool
     directive_toggle: bool
+    directive_dropdown: bool
     alerts: bool
     picture_theme: bool
-    fence: Literal["`", ":", "~"]
-    renderer: Callable[[dict | str], str]
+    fence: _Literal["`", ":", "~"]
+    renderer: _Callable[[dict | str], str]
     rich_export: RichExportHTMLConfig | RichExportSVGConfig | RichExportTextConfig

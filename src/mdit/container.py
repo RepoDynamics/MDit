@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING as _TYPE_CHECKING, NamedTuple as _NamedTuple
-import re as _re
 
 import htmp as _htmp
 import rich
@@ -12,9 +11,8 @@ from mdit.protocol import MDITRenderable as _MDCode
 from mdit.renderable import Renderable as _Renderable
 
 if _TYPE_CHECKING:
-    from typing import Literal
     from rich.console import RenderableType
-    from mdit.protocol import ContainerContentType, TargetConfigs, Stringable, MDTargetConfig, RichTargetConfig
+    from mdit.protocol import ContainerContentType, ContainerContentConditionType, ContainerContentInputType, TargetConfigs, Stringable, MDTargetConfig, RichTargetConfig
 
 
 class ContainerContent(_NamedTuple):
@@ -36,8 +34,8 @@ class Container:
 
     def append(
         self,
-        content,
-        conditions: str | list[str] | None = None,
+        content: ContainerContentType,
+        conditions: ContainerContentConditionType = None,
         key: str | int | None = None
     ) -> str | int:
         if not key:
@@ -53,14 +51,31 @@ class Container:
         self._data[key] = ContainerContent(content=content, conditions=conditions)
         return key
 
-    def extend(self, *unlabeled_contents, **labeled_contents) -> list[str | int]:
+    def extend(self, *unlabeled_contents: ContainerContentInputType, **labeled_contents: ContainerContentInputType) -> list[str | int]:
 
-        def resolve_value(v):
-            if isinstance(v, (list, tuple)):
-                val = v[0]
-                cond = v[1] if len(v) > 1 else None
-                return val, cond
-            return v, None
+        def resolve_value(input_values):
+            if not input_values:
+                return
+            if isinstance(input_values, list):
+                for input_value in input_values:
+                    yield from resolve_value(input_value)
+            elif isinstance(input_values, tuple):
+                val = input_values[0]
+                cond = input_values[1] if len(input_values) > 1 else None
+                key = input_values[2] if len(input_values) > 2 else None
+                yield val, cond, key
+            elif isinstance(input_values, dict):
+                for k, v in input_values.items():
+                    key = k
+                    if isinstance(v, (list, tuple)):
+                        val = v[0]
+                        cond = v[1] if len(v) > 1 else None
+                    else:
+                        val = v
+                        cond = None
+                    yield val, cond, key
+            else:
+                yield input_values, None, None
 
         added_keys = []
         if unlabeled_contents:
@@ -68,12 +83,13 @@ class Container:
                 (key for key in self._data.keys() if isinstance(key, int)), default=-1
             ) + 1
             for idx, value in enumerate(unlabeled_contents):
-                content, conditions = resolve_value(value)
-                added_keys.append(self.append(content, conditions, first_available_key + idx))
+                for content, conditions, key in resolve_value(value):
+                    added_keys.append(self.append(content, conditions, key or first_available_key + idx))
         if labeled_contents:
             for key, value in labeled_contents.items():
-                content, conditions = resolve_value(value)
-                added_keys.append(self.append(content, conditions, key))
+                for content, conditions, sub_key in resolve_value(value):
+                    final_key = key if sub_key is None else f"{key}.{sub_key}"
+                    added_keys.append(self.append(content, conditions, final_key))
         return added_keys
 
     def elements(
@@ -120,9 +136,12 @@ class Container:
     def __bool__(self):
         return bool(self._data)
 
+    def __len__(self):
+        return len(self._data)
+
 
 class MDContainer(Container, _Renderable):
-
+    # Multiple inheritance: https://stackoverflow.com/questions/9575409/calling-parent-class-init-with-multiple-inheritance-whats-the-right-way
     def __init__(
         self,
         content: dict[str | int, ContainerContent] | None = None,
@@ -166,8 +185,6 @@ class MDContainer(Container, _Renderable):
                 for element in elements
             ]
             return rich.console.Group(*group) if len(group) > 1 else group[0]
-        if len(elements) == 1:
-            return rich.text.Text(elements[0])
         text = rich.text.Text()
         for element in elements[:-1]:
             text.append(element)

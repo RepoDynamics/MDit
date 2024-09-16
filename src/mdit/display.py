@@ -1,4 +1,7 @@
 """Display HTML and Markdown content in web browser or IPython notebook."""
+from __future__ import annotations as  _annotations
+
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 import webbrowser as _webbrowser
 import tempfile as _tempfile
@@ -6,6 +9,9 @@ import time as _time
 
 import rich as _rich
 from IPython import display as _display
+
+if _TYPE_CHECKING:
+    from rich.console import Console
 
 
 def browser(content: str) -> None:
@@ -47,7 +53,7 @@ def ipython(content: str, as_md: bool = True) -> None:
     return
 
 
-def console(content, output: _rich.console.Console | None = None) -> None:
+def console(content, output: Console | None = None) -> None:
     writer = output or _rich
     writer.print(content)
     return
