@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io as _io
 from typing import TYPE_CHECKING as _TYPE_CHECKING, Literal as _Literal, Callable as _Callable
 import textwrap as _textwrap
 
@@ -15,50 +16,50 @@ if _TYPE_CHECKING:
 
 RICH_SVG_TEMPLATE = _textwrap.dedent(
     """<svg class="rich-terminal" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">
-    <style>
-    @font-face {{
-        font-family: "Fira Code";
-        src: local("FiraCode-Regular"),
-            url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Regular.woff2") format("woff2"),
-            url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Regular.woff") format("woff");
-        font-style: normal;
-        font-weight: 400;
-    }}
-    @font-face {{
-        font-family: "Fira Code";
-        src: local("FiraCode-Bold"),
-            url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Bold.woff2") format("woff2"),
-            url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Bold.woff") format("woff");
-        font-style: bold;
-        font-weight: 700;
-    }}
-    .{unique_id}-matrix {{
-        font-family: Fira Code, monospace;
-        font-size: {char_height}px;
-        line-height: {line_height}px;
-        font-variant-east-asian: full-width;
-    }}
-    .{unique_id}-title {{
-        font-size: 18px;
-        font-weight: bold;
-        font-family: arial;
-    }}
-    {styles}
-    </style>
-    <defs>
-    <clipPath id="{unique_id}-clip-terminal">
-      <rect x="0" y="0" width="{terminal_width}" height="{terminal_height}" />
-    </clipPath>
-    {lines}
-    </defs>
-    {chrome}
-    <g transform="translate({terminal_x}, {terminal_y})" clip-path="url(#{unique_id}-clip-terminal)">
-    {backgrounds}
-    <g class="{unique_id}-matrix">
-    {matrix}
-    </g>
-    </g>
-    </svg>"""
+<style>
+@font-face {{
+font-family: "Fira Code";
+src: local("FiraCode-Regular"),
+url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Regular.woff2") format("woff2"),
+url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Regular.woff") format("woff");
+font-style: normal;
+font-weight: 400;
+}}
+@font-face {{
+font-family: "Fira Code";
+src: local("FiraCode-Bold"),
+url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Bold.woff2") format("woff2"),
+url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Bold.woff") format("woff");
+font-style: bold;
+font-weight: 700;
+}}
+.{unique_id}-matrix {{
+font-family: Fira Code, monospace;
+font-size: {char_height}px;
+line-height: {line_height}px;
+font-variant-east-asian: full-width;
+}}
+.{unique_id}-title {{
+font-size: 18px;
+font-weight: bold;
+font-family: arial;
+}}
+{styles}
+</style>
+<defs>
+<clipPath id="{unique_id}-clip-terminal">
+<rect x="0" y="0" width="{terminal_width}" height="{terminal_height}" />
+</clipPath>
+{lines}
+</defs>
+{chrome}
+<g transform="translate({terminal_x}, {terminal_y})" clip-path="url(#{unique_id}-clip-terminal)">
+{backgrounds}
+<g class="{unique_id}-matrix">
+{matrix}
+</g>
+</g>
+</svg>"""
 )
 
 
@@ -81,9 +82,9 @@ class RichExportConfig(_pydantic.BaseModel):
     console: _RichConsoleConfig | None = None
 
     def make_console(self):
-        return self.console.make(quiet=True, record=True) if self.console else _console.Console(
-            quiet=True, record=True
-        )
+        overrides = {"file": _io.StringIO(), "record": True, "force_jupyter": False}
+        func = self.console.make if self.console else _console.Console
+        return func(**overrides)
 
 
 class RichExportHTMLConfig(RichExportConfig):

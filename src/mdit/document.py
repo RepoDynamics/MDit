@@ -144,13 +144,13 @@ class Document(_Renderable):
                     heading_number=heading_number,
                     separate_sections=separate_sections,
                 )
-                return doc["index"] if len(doc) == 1 else doc
+                return doc
             return self._str_md_single(
                 target=target,
                 filters=filters,
                 heading_number=heading_number,
                 heading_number_explicit=heading_number_explicit,
-            )["index"]
+            )
         return self._source_rich(
             target=target,
             filters=filters,
@@ -184,7 +184,7 @@ class Document(_Renderable):
                     filters=filters,
                     heading_number=heading_number + [idx + 1],
                 )
-                content.append(subsections_str["index"])
+                content.append(subsections_str)
         footer = self.footer.source(target=target, filters=filters)
         if footer:
             content.append(footer)
@@ -205,7 +205,7 @@ class Document(_Renderable):
                 page.append(heading)
             # Otherwise <details> is used, which displays the title
             page.append(_mdit.element.toggle(page_content, title=heading).source(target=target))
-        return {"index": "\n\n".join(page).strip()}
+        return "\n\n".join(page).strip()
 
 
     def _str_md_multi(

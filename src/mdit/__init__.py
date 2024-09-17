@@ -26,9 +26,9 @@ def generate(config: dict | list):
 
 def document(
     heading: element.Heading | MDContainer | ContainerContentInputType = None,
-    body: Sequence[ContainerContentInputType] = None,
+    body: MDContainer | ContainerContentInputType = None,
     section: Container | None = None,
-    footer: ContainerContentInputType = None,
+    footer: MDContainer | ContainerContentInputType = None,
     frontmatter: dict | element.FrontMatter | None = None,
     frontmatter_conditions: list[str] | None = None,
     separate_sections: bool = False,
@@ -54,12 +54,11 @@ def document(
     # Process heading
     if heading and not isinstance(heading, element.Heading):
         heading = element.heading(
-            heading,
-            content_separator=content_separator_heading,
+            content=heading,
             target_configs=target_configs,
             target_default=target_default,
         )
-    body = container(body, content_separator="\n\n")
+    body = to_block_container(body)
     if isinstance(section, Container):
         pass
     elif not section:
@@ -70,7 +69,7 @@ def document(
         section = section_container(*section)
     else:
         section = section_container(section)
-    footer = container(footer, content_separator="\n\n")
+    footer = to_block_container(footer)
     if isinstance(frontmatter, dict):
         frontmatter = element.frontmatter(frontmatter)
     return Document(
@@ -158,8 +157,48 @@ def section_container(
     return container_
 
 
-def _to_container(
-    contents: list[ContainerContentSingleInputType],
+def to_block_container(
+    content: MDContainer | ContainerContentInputType,
+    separator: str = "\n\n",
+    html_container: Stringable | None = None,
+    html_container_attrs: dict | None = None,
+    html_container_conditions: list[str] | None = None,
+    target_configs: TargetConfigs = None,
+    target_default: str = "sphinx",
+) -> MDContainer:
+    return to_md_container(
+        content,
+        content_separator=separator,
+        html_container=html_container,
+        html_container_attrs=html_container_attrs,
+        html_container_conditions=html_container_conditions,
+        target_configs=target_configs,
+        target_default=target_default,
+    )
+
+
+def to_inline_container(
+    content: MDContainer | ContainerContentInputType,
+    separator: str = "",
+    html_container: Stringable | None = None,
+    html_container_attrs: dict | None = None,
+    html_container_conditions: list[str] | None = None,
+    target_configs: TargetConfigs = None,
+    target_default: str = "sphinx",
+) -> MDContainer:
+    return to_md_container(
+        content,
+        content_separator=separator,
+        html_container=html_container,
+        html_container_attrs=html_container_attrs,
+        html_container_conditions=html_container_conditions,
+        target_configs=target_configs,
+        target_default=target_default,
+    )
+
+
+def to_md_container(
+    content: MDContainer | ContainerContentInputType,
     content_separator: str,
     html_container: Stringable | None = None,
     html_container_attrs: dict | None = None,
@@ -167,8 +206,8 @@ def _to_container(
     target_configs: TargetConfigs = None,
     target_default: str = "sphinx",
 ) -> MDContainer:
-    if len(contents) == 1 and isinstance(contents[0], MDContainer):
-        return contents[0]
+    if isinstance(content, MDContainer):
+        return content
     container_ = MDContainer(
         content_separator=content_separator,
         html_container=html_container,
@@ -177,5 +216,5 @@ def _to_container(
         target_configs=target_configs,
         target_default=target_default,
     )
-    container_.extend(contents)
+    container_.extend(content)
     return container_

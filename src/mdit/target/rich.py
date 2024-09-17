@@ -183,7 +183,6 @@ class TextConfig(_pydantic.BaseModel):
             kwargs["style"] = StyleConfig(**kwargs["style"]).make()
         if isinstance(text, str):
             return _text.Text(f"{self.prefix}{text}{self.suffix}", style=kwargs["style"])
-        print(text, type(text))
         return _text.Text.assemble(self.prefix, text, self.suffix, style=kwargs["style"])
 
 

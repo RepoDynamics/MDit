@@ -170,7 +170,7 @@ def console(
     ordered_list: dict | rich.OrderedListConfig = rich.OrderedListConfig(
         table=rich.TableConfig(box=rich.NamedBox(name="simple"), show_header=False, padding=(0,1,0,0), show_edge=False),
         marker_column=rich.ColumnConfig(style="rgb(0,150,0) bold", justify="right"),
-        item_column=rich.ColumnConfig(),
+        item_column=rich.ColumnConfig(justify="left"),
     ),
     unordered_list: dict | rich.UnorderedListConfig = rich.UnorderedListConfig(
         table=rich.TableConfig(box=rich.NamedBox(name="simple"), show_header=False, padding=(0,1,0,0), show_edge=False),

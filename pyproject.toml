@@ -17,7 +17,7 @@ namespaces = true
 # ----------------------------------------- Project Metadata -------------------------------------
 #
 [project]
-version = "0.0.0.dev1"
+version = "0.0.0.dev2"
 name = "MDit"
 requires-python = ">=3.10"
 dependencies = [
@@ -43,4 +43,5 @@ dependencies = [
     "HTMP",
     "ansi-sgr",
     "pygments",
+    "rich",
 ]
