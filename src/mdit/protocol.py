@@ -6,7 +6,7 @@ from typing import (
     TYPE_CHECKING as _TYPE_CHECKING,
 )
 
-from pyprotocol import Stringable
+from protocolman import Stringable
 from htmp.protocol import AttrsInputType as _AttrsInputType
 
 from mdit.target.md import Config as MDTargetConfig

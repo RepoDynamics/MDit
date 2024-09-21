@@ -62,7 +62,8 @@ class Renderable:
     def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
         return ""
 
-    def _count_code_fence(self, content: str) -> int:
-        pattern = _re.compile(r'^\s{0, 3}(`{3,}|~{3,}|:{3,})', _re.MULTILINE)
+    @staticmethod
+    def _count_code_fence(content: str) -> int:
+        pattern = _re.compile(r'^\s{0,3}(`{3,}|~{3,}|:{3,})', _re.MULTILINE)
         matches = pattern.findall(str(content))
         return max(len(match) for match in matches) if matches else 0

@@ -130,9 +130,24 @@ def sphinx(
             "extensions": [
                 'myst_parser',
                 'sphinx_design',
-                'sphinx_togglebutton'
+                'sphinx_togglebutton',
             ],
-            "myst_enable_extensions": ["colon_fence"],
+            "myst_enable_extensions": [
+                "amsmath",
+                "attrs_inline",
+                "colon_fence",
+                "deflist",
+                "dollarmath",
+                "fieldlist",
+                "html_admonition",
+                "html_image",
+                "linkify",
+                "replacements",
+                "smartquotes",
+                "strikethrough",
+                "substitution",
+                "tasklist",
+            ],
             "html_theme": "pydata_sphinx_theme",
             "html_title": "",
         }

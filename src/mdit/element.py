@@ -153,7 +153,7 @@ class Admonition(Element):
         self.title_bold = title_bold
         self.title_tight = title_tight
         self.emoji = emoji or self.EMOJI[type]
-        self.config_rich = config_rich or PanelConfig(
+        self.config_rich = config_rich or _mdit.target.rich.PanelConfig(
             title_style=_mdit.target.rich.StyleConfig(
                 bgcolor=self.COLOR[type],
                 color=(255, 255, 255),
@@ -172,7 +172,7 @@ class Admonition(Element):
         title = self.title.source(target=target, filters=filters).strip()
         body = self.body.source(target=target, filters=filters).strip()
         footer = self.footer.source(target=target, filters=filters).strip()
-        content = f"{body}\n\n---\n\n{footer}".strip()
+        content = f"{body}\n\n---\n\n{footer}" if footer else body
         if target.directive_admo:
             return self._str_admo(title=title, content=content, target=target, filters=filters)
         if target.alerts:
@@ -708,9 +708,9 @@ class Directive(Element):
     def __init__(
         self,
         name: Stringable,
-        args: MDContainer | None = None,
+        args: MDContainer | Stringable | None = None,
         options: dict[Stringable, Stringable | list[Stringable] | None] | None = None,
-        content: MDContainer | None = None,
+        content: MDContainer | Stringable | None = None,
         target_configs: TargetConfigs = None,
         target_default: str = "sphinx",
     ):
@@ -747,10 +747,21 @@ class Directive(Element):
             return f"{"\n".join(option_lines)}\n"
 
         target = self._resolve_target(target)
-        content = f"\n{self.content.source(target=target, filters=filters)}\n\n" if self.content else ""
+        if isinstance(self.content, _MDITRenderable):
+            content = self.content.source(target=target, filters=filters).strip()
+        elif not self.content:
+            content = ""
+        else:
+            content = str(self.content).strip()
+        content = f"\n{content}\n\n" if content else ""
         fence = target.fence * self.code_fence_count
-        args = self.args.source(target=target, filters=filters) if self.args else ""
-        start_line = f"{fence}{{{self.name}}} {args}"
+        if isinstance(self.args, _MDITRenderable):
+            args = self.args.source(target=target, filters=filters).strip()
+        elif not self.args:
+            args = ""
+        else:
+            args = str(self.args).strip()
+        start_line = f"{fence}{{{self.name}}} {args}".strip()
         opts = options()
         return f"{start_line}\n{opts}{content}{fence}"
 
@@ -804,9 +815,9 @@ class DropDown(Element):
         self.classes_container = classes_container or []
         self.classes_title = classes_title or []
         self.classes_body = classes_body or []
-        self.config_rich = config_rich or PanelConfig(
+        self.config_rich = config_rich or _mdit.target.rich.PanelConfig(
             title_style=_mdit.target.rich.StyleConfig(
-                bgcolor=self.COLOR[color],
+                bgcolor=self.COLOR[color or "muted"],
                 color="#fff" if color != "light" else "#212529",
                 bold=True,
             ),
@@ -825,7 +836,7 @@ class DropDown(Element):
         title = self.title.source(target=target, filters=filters).strip()
         content = self.body.source(target=target, filters=filters).strip()
         footer = self.footer.source(target=target, filters=filters).strip()
-        content_full = f"{content}\n\n---\n\n{footer}".strip()
+        content_full = f"{content}\n\n---\n\n{footer}" if footer else content
         if target.directive_dropdown:
             options = {
                 "open": self.opened,
@@ -849,6 +860,10 @@ class DropDown(Element):
         title = f"{self.emoji} {title}" if self.emoji else self.title
         details_content = [_htmp.element.summary(title), _htmp.elementor.markdown(content)]
         return str(_htmp.element.details(details_content, {"open": self.opened}))
+
+    @property
+    def code_fence_count(self) -> int:
+        return max(self.body.code_fence_count, 2) + 1
 
 
 class FieldListItem(Element):
@@ -1469,8 +1484,8 @@ class Table(Element):
             rows = []
             for row, _ in self.rows:
                 cells = [cell for cell, _ in row]
-                rows.append(unordered_list(*cells))
-            table_content = unordered_list(*rows)
+                rows.append(unordered_list(cells))
+            table_content = unordered_list(rows)
             return directive(
                 name="list-table",
                 args=self.caption,
@@ -3409,7 +3424,7 @@ def unordered_list_item(
 
 
 def unordered_list(
-    content: Sequence[UnOrderedListItem | ContainerContentInputType | MDContainer] | MDContainer,
+    content: Sequence[UnOrderedListItem | ContainerContentInputType | MDContainer] | MDContainer = None,
     classes: list[Stringable] | None = None,
     name: Stringable | None = None,
     tight: bool = True,
