@@ -17,7 +17,7 @@ namespaces = true
 # ----------------------------------------- Project Metadata -------------------------------------
 #
 [project]
-version = "0.0.0.dev3"
+version = "0.0.0.dev4"
 name = "MDit"
 requires-python = ">=3.10"
 dependencies = [
@@ -29,13 +29,14 @@ dependencies = [
     "markdown-it-py",
     "mdit-py-plugins",
     "linkify-it-py",
-    "readme-renderer",
-    "cmarkgfm",
+    "readme-renderer[md]",
+    "cmarkgfm >= 0.8.0",
     "zundler",
     "IPython",
     "jupyterlab_myst",
     "pygments",
-    "rich",
+    "rich >= 13.8",
+    "pydantic >= 2.9",
     "PkgData == 0.0.0.dev3",
     "PySerials == 0.0.0.dev7",
     "PyLinks == 0.0.0.dev27",
