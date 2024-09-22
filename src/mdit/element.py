@@ -959,7 +959,7 @@ class FieldList(Element):
         items = [
             (
                 item.title.source(target=target, filters=filters),
-                item.description.source(target=target, filters=filters) if item.description else ""
+                item.body.source(target=target, filters=filters) if item.body else ""
             ) for item in self.content.elements(target=target, filters=filters)
         ]
         return self.config_rich.make(items)
