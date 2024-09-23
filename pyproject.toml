@@ -17,7 +17,7 @@ namespaces = true
 # ----------------------------------------- Project Metadata -------------------------------------
 #
 [project]
-version = "0.0.0.dev5"
+version = "0.0.0.dev7"
 name = "MDit"
 requires-python = ">=3.10"
 dependencies = [
@@ -39,10 +39,10 @@ dependencies = [
     "pydantic >= 2.9",
     "referencing >= 0.35.1",
     "PkgData == 0.0.0.dev4",
-    "PySerials == 0.0.0.dev8",
-    "PyBadger == 0.0.0.dev9",
-    "PyColorIt == 0.0.0.dev6",
+    "PySerials == 0.0.0.dev10",
+    "PyBadger == 0.0.0.dev10",
+    "PyColorIT == 0.0.0.dev7",
     "ProtocolMan == 0.0.0.dev2",
-    "HTMP == 0.0.0.dev3",
-    "JSONSchemata == 0.0.0.dev4",
+    "HTMP == 0.0.0.dev4",
+    "JSONSchemata == 0.0.0.dev6",
 ]
