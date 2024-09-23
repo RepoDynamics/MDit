@@ -183,6 +183,7 @@ class Document(_Renderable):
                     target=target,
                     filters=filters,
                     heading_number=heading_number + [idx + 1],
+                    heading_number_explicit=heading_number_explicit,
                 )
                 content.append(subsections_str)
         footer = self.footer.source(target=target, filters=filters)
