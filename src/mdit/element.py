@@ -940,6 +940,8 @@ class FieldList(Element):
         return
 
     def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
+        if not target.field_list:
+            return self._source_md_normal_list(target=target, filters=filters)
         content = self.content.source(target=target, filters=filters)
         if (self.classes or self.name) and target.attrs_block:
             return attribute(
@@ -963,6 +965,19 @@ class FieldList(Element):
             ) for item in self.content.elements(target=target, filters=filters)
         ]
         return self.config_rich.make(items)
+
+    def _source_md_normal_list(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
+        titles: list[str] = []
+        bodies = []
+        for item in self.content.elements(target=target, filters=filters):
+            titles.append(item.title.source(target=target, filters=filters))
+            bodies.append(item.body.source(target=target, filters=filters))
+        max_title_len = max([len(title) for title in titles], default=0)
+        lis = unordered_list()
+        for title, body in zip(titles, bodies):
+            spaces = "&nbsp;" * (max_title_len - len(title))
+            lis.append(f"**{title}**{spaces} : {body}")
+        return lis.source(target=target, filters=filters)
 
     def append(
         self,
@@ -1455,8 +1470,8 @@ class Table(Element):
                 rows_str.append((row_str, row_attrs))
             table_ = _htmp.elementor.table_from_rows(
                 rows_head=rows_str[:self.num_rows_header],
-                rows_body=rows_str[self.num_rows_header:-self.num_rows_footer],
-                rows_foot=rows_str[-self.num_rows_footer:],
+                rows_body=rows_str[self.num_rows_header:(-self.num_rows_footer or None)],
+                rows_foot=rows_str[-self.num_rows_footer:] if self.num_rows_footer else None,
                 as_figure=True,
                 caption=self.caption,
                 num_cols_stub=self.num_cols_stub,
@@ -1479,7 +1494,9 @@ class Table(Element):
                 attrs_foot_th=self.attrs_foot_th,
                 attrs_foot_td=self.attrs_foot_td,
             ).source(indent=-1)
-            return table_
+            if not self.align_table:
+                return table_
+            return self._wrap(content=table_, container="div", attrs_container={"align": self.align_table})
         if target.directive_list_table:
             rows = []
             for row, _ in self.rows:
@@ -3166,7 +3183,7 @@ def table(
     attrs_foot_td: HTMLAttrsType = None,
     target_configs: TargetConfigs = None,
     target_default: str = "sphinx",
-):
+) -> Table:
     rows_formatted = []
     for row in rows:
         row_formatted = []
