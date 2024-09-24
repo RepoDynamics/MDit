@@ -128,9 +128,12 @@ def sphinx(
         _render.sphinx,
         config={
             "extensions": [
-                'myst_parser',
+                'myst_nb',
                 'sphinx_design',
                 'sphinx_togglebutton',
+                'sphinx_copybutton',
+                'sphinxcontrib.mermaid',
+                'sphinx_tippy',
             ],
             "myst_enable_extensions": [
                 "amsmath",
@@ -149,6 +152,10 @@ def sphinx(
                 "tasklist",
             ],
             "html_theme": "pydata_sphinx_theme",
+            "html_theme_options": {
+                "pygments_light_style": "default",
+                "pygments_dark_style": "monokai",
+            },
             "html_title": "",
         }
     ),

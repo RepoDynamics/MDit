@@ -940,8 +940,6 @@ class FieldList(Element):
         return
 
     def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
-        if not target.field_list:
-            return self._source_md_normal_list(target=target, filters=filters)
         content = self.content.source(target=target, filters=filters)
         if (self.classes or self.name) and target.attrs_block:
             return attribute(
@@ -965,19 +963,6 @@ class FieldList(Element):
             ) for item in self.content.elements(target=target, filters=filters)
         ]
         return self.config_rich.make(items)
-
-    def _source_md_normal_list(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
-        titles: list[str] = []
-        bodies = []
-        for item in self.content.elements(target=target, filters=filters):
-            titles.append(item.title.source(target=target, filters=filters))
-            bodies.append(item.body.source(target=target, filters=filters))
-        max_title_len = max([len(title) for title in titles], default=0)
-        lis = unordered_list()
-        for title, body in zip(titles, bodies):
-            spaces = "&nbsp;" * (max_title_len - len(title))
-            lis.append(f"**{title}**{spaces} : {body}")
-        return lis.source(target=target, filters=filters)
 
     def append(
         self,
