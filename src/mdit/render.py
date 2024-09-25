@@ -4,6 +4,9 @@ import sys as _sys
 import tempfile as _tempfile
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 from pathlib import Path as _Path
+import logging as _logging
+import io as _io
+import warnings as _warnings
 
 from functools import partial as _partial
 import cmarkgfm as _gfm_pypi
@@ -54,23 +57,26 @@ def sphinx(
             with open(filepath, "w") as f:
                 f.write(text)
         out_dir = temp_dir / "build"
-        _Sphinx(
-            srcdir=src_dir,
-            confdir=None,
-            outdir=out_dir,
-            doctreedir=temp_dir / "doctrees",
-            buildername="zundler",
-            confoverrides=config,
-            status=status,
-            warning=warning,
-            freshenv=fresh_env,
-            warningiserror=warnings_are_errors,
-            tags=tags,
-            verbosity=verbosity,
-            parallel=parallel,
-            keep_going=keep_going,
-            pdb=pdb,
-        ).build(force_all=True)
+        _configure_zundler_logging()
+        with _warnings.catch_warnings():
+            _warnings.filterwarnings("ignore", category=DeprecationWarning)
+            _Sphinx(
+                srcdir=src_dir,
+                confdir=None,
+                outdir=out_dir,
+                doctreedir=temp_dir / "doctrees",
+                buildername="zundler",
+                confoverrides=config,
+                status=status,
+                warning=warning,
+                freshenv=fresh_env,
+                warningiserror=warnings_are_errors,
+                tags=tags,
+                verbosity=verbosity,
+                parallel=parallel,
+                keep_going=keep_going,
+                pdb=pdb,
+            ).build(force_all=True)
         return (out_dir / "index.html").read_text()
 
 
@@ -433,3 +439,23 @@ def readme_renderer(
     if isinstance(source, str):
         return _readme_renderer_md.render(source)
     return {key: _readme_renderer_md.render(value) for key, value in source.items()}
+
+
+def _configure_zundler_logging():
+    # See https://github.com/AdrianVollmer/Zundler/pull/9
+
+    log_stream = _io.StringIO()
+    # Create a StreamHandler for the in-memory stream
+    stream_handler = _logging.StreamHandler(log_stream)
+    stream_handler.setLevel(_logging.DEBUG)
+    # Set a formatter for better readability
+    formatter = _logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    stream_handler.setFormatter(formatter)
+
+    dependency_logger = _logging.getLogger('zundler.embed')
+    dependency_logger.handlers = []  # Remove existing handlers
+    dependency_logger.addHandler(stream_handler)
+    dependency_logger.setLevel(_logging.DEBUG)
+    # **Prevent logs from propagating to ancestor loggers**
+    dependency_logger.propagate = False
+    return
