@@ -124,41 +124,7 @@ def sphinx(
     directive_dropdown: bool = True,
     alerts: bool = False,
     picture_theme: bool = True,
-    renderer: Callable[[dict | str], str] = _partial(
-        _render.sphinx,
-        config={
-            "extensions": [
-                'myst_nb',
-                'sphinx_design',
-                'sphinx_togglebutton',
-                'sphinx_copybutton',
-                'sphinxcontrib.mermaid',
-                'sphinx_tippy',
-            ],
-            "myst_enable_extensions": [
-                "amsmath",
-                "attrs_inline",
-                "colon_fence",
-                "deflist",
-                "dollarmath",
-                "fieldlist",
-                "html_admonition",
-                "html_image",
-                "linkify",
-                "replacements",
-                "smartquotes",
-                "strikethrough",
-                "substitution",
-                "tasklist",
-            ],
-            "html_theme": "pydata_sphinx_theme",
-            "html_theme_options": {
-                "pygments_light_style": "default",
-                "pygments_dark_style": "monokai",
-            },
-            "html_title": "",
-        }
-    ),
+    renderer: Callable[[dict | str], str] = _render.sphinx,
     rich_export: dict
         | md.RichExportHTMLConfig
         | md.RichExportSVGConfig

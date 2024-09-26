@@ -29,7 +29,7 @@ class Document(_Renderable):
         toctree_args: dict[str, str] | None = None,
         toctree_dirhtml: bool = True,
         target_configs: TargetConfigs = None,
-        target_default: TargetConfigs = "sphinx",
+        target_default: str = "sphinx",
         deep_section_generator: Callable[[Document], str] | None = None,
     ):
         super().__init__(target_configs=target_configs, target_default=target_default)

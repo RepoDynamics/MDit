@@ -6,9 +6,10 @@ from typing import TYPE_CHECKING as _TYPE_CHECKING
 from pathlib import Path as _Path
 import logging as _logging
 import io as _io
+import copy as _copy
 import warnings as _warnings
-
 from functools import partial as _partial
+
 import cmarkgfm as _gfm_pypi
 from readme_renderer import markdown as _readme_renderer_md, clean as _readme_renderer_clean
 from sphinx.application import Sphinx as _Sphinx
@@ -28,16 +29,66 @@ from mdit_py_plugins.myst_role import myst_role_plugin as _mdit_plugin_myst_role
 from mdit_py_plugins.substitution import substitution_plugin as _mdit_plugin_substitution
 from mdit_py_plugins.tasklists import tasklists_plugin as _mdit_plugin_tasklists
 from mdit_py_plugins.wordcount import wordcount_plugin as _mdit_plugin_wordcount
+import pyserials as _ps
 
 if _TYPE_CHECKING:
     from typing import IO, Literal, Callable
 
 
+def get_sphinx_config(
+    config: dict | None = None,
+    append_list: bool = True,
+    append_dict: bool = True,
+):
+    config_default = {
+        "extensions": [
+            'myst_nb',
+            'sphinx_design',
+            'sphinx_togglebutton',
+            'sphinx_copybutton',
+            'sphinxcontrib.mermaid',
+            'sphinx_tippy',
+        ],
+        "myst_enable_extensions": [
+            "amsmath",
+            "attrs_inline",
+            "colon_fence",
+            "deflist",
+            "dollarmath",
+            "fieldlist",
+            "html_admonition",
+            "html_image",
+            "linkify",
+            "replacements",
+            "smartquotes",
+            "strikethrough",
+            "substitution",
+            "tasklist",
+        ],
+        "html_theme": "pydata_sphinx_theme",
+        "html_theme_options": {
+            "pygments_light_style": "default",
+            "pygments_dark_style": "monokai",
+        },
+        "html_title": "",
+    }
+    config_final = _copy.deepcopy(config) or {}
+    _ps.update.dict_from_addon(
+        data=config_final,
+        addon=config_default,
+        append_list=append_list,
+        append_dict=append_dict,
+        raise_duplicates=False,
+        raise_type_mismatch=False,
+    )
+    return config_final
+
+
 def sphinx(
     content: str | dict[str, str],
     config: dict | None = None,
-    status: IO[str] | None = _sys.stdout,
-    warning: IO[str] | None = _sys.stderr,
+    status: IO[str] | None = None,
+    warning: IO[str] | None = None,
     warnings_are_errors: bool = False,
     fresh_env: bool = True,
     tags: list[str] = (),
@@ -48,6 +99,8 @@ def sphinx(
 ):
     if isinstance(content, str):
         content = {"index": content}
+    if config is None:
+        config = get_sphinx_config()
     with _tempfile.TemporaryDirectory() as temp_dir:
         temp_dir = _Path(temp_dir)
         src_dir = temp_dir / "source"
@@ -67,8 +120,8 @@ def sphinx(
                 doctreedir=temp_dir / "doctrees",
                 buildername="zundler",
                 confoverrides=config,
-                status=status,
-                warning=warning,
+                status=status or _io.StringIO(),
+                warning=warning or _io.StringIO(),
                 freshenv=fresh_env,
                 warningiserror=warnings_are_errors,
                 tags=tags,
