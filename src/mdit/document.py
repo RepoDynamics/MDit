@@ -61,6 +61,10 @@ class Document(_Renderable):
     def current_section_key(self) -> tuple[str | int, ...]:
         return tuple(self._current_section_key)
 
+    @property
+    def current_section_level(self) -> int:
+        return len(self._current_section_key) + 1
+
     def open_section(
         self,
         heading: Heading | MDContainer | ContainerContentInputType,
@@ -73,13 +77,16 @@ class Document(_Renderable):
         self._current_section = new_section
         return
 
-    def close_section(self):
-        if not self._current_section_key:
-            return
-        self._current_section_key.pop()
-        if not self._current_section_key:
-            self._current_section = self
-            return
+    def close_section(self, target_level: int | None = None):
+        curr_level = self.current_section_level
+        if not target_level:
+            target_level = curr_level - 1
+        if not (0 < target_level < curr_level):
+            raise ValueError(
+                f"Target level must be between 1 and the current section level ({curr_level}), "
+                f"but got {target_level}."
+            )
+        self._current_section_key = self._current_section_key[:target_level - 1]
         section = self
         for key in self._current_section_key:
             section = section.section[key].content
