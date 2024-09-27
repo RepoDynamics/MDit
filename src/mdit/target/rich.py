@@ -193,7 +193,7 @@ class SyntaxConfig(_pydantic.BaseModel):
     word_wrap: bool = False
     background_color: str | None = None
     indent_guides: bool = False
-    padding: PaddingDimensions = 1
+    padding: PaddingDimensions = 0
 
     def make(
         self,
