@@ -190,7 +190,7 @@ class SyntaxConfig(_pydantic.BaseModel):
     theme: str = "monokai"
     dedent: bool = False
     tab_size: int = 4
-    word_wrap: bool = False
+    word_wrap: bool = True
     background_color: str | None = None
     indent_guides: bool = False
     padding: PaddingDimensions = 0
