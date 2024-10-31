@@ -36,6 +36,12 @@ def github(
         | md.RichExportSVGConfig
         | md.RichExportTextConfig = md.RichExportHTMLConfig()
 ) -> md.Config:
+    #TODO: add exact allowed HTML tags
+    # Refs:
+    # - https://github.com/github/markup/issues/245
+    # - https://gist.github.com/seanh/13a93686bf4c2cb16e658b3cf96807f2
+    # - https://gist.github.com/coolaj86/89821fe046623d5503ce5c4133e70506
+    # - https://github.com/github/markup
     return md.Config(
         prefer_md=prefer_md,
         attrs_block=attrs_block,
