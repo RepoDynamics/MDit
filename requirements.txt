@@ -19,9 +19,9 @@ rich >= 13.8
 pydantic >= 2.9
 referencing >= 0.35.1
 PkgData == 0.0.0.dev5
-PySerials == 0.0.0.dev34
-PyBadger == 0.0.0.dev28
+PySerials == 0.0.0.dev35
+PyBadger == 0.0.0.dev29
 PyColorIT == 0.0.0.dev8
 ProtocolMan == 0.0.0.dev2
 HTMP == 0.0.0.dev5
-JSONSchemata == 0.0.0.dev30
+JSONSchemata == 0.0.0.dev31
