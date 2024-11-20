@@ -3511,13 +3511,20 @@ def _make_badge_gradients(inputs: dict, count_items: int):
         for color_type in ("color", "label_color", "logo_color"):
             color_key = color_type if theme == "light" else f"{color_type}_dark"
             color = inputs.get(color_key)
-            if not color or not isinstance(color, dict):
+            if not color or not isinstance(color, (dict, list)):
                 continue
             grad_def = inputs.pop(color_key)
-            grad_gen = getattr(_pcit.gradient, grad_def.pop("gradient", "interpolate"))
-            grad_def["count"] = count_items
-            hex_colors = [color.css_hex() for color in grad_gen(**grad_def)]
-            gradient[color_key] = hex_colors
+            if isinstance(grad_def, list):
+                colors = _pcit.gradient.interpolate(
+                    color_start=grad_def[0],
+                    color_end=grad_def[1],
+                    count=count_items,
+                )
+            else:
+                grad_gen = getattr(_pcit.gradient, grad_def.pop("gradient", "interpolate"))
+                grad_def["count"] = count_items
+                colors = grad_gen(**grad_def)
+            gradient[color_key] = [color.css_hex() for color in colors]
     return gradient
 
 
