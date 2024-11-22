@@ -63,7 +63,7 @@ class DocumentGenerator:
         return generator(**config)
 
 
-    def generate_container(self, container: str | list[str | dict, list[str | dict]]):
+    def generate_container(self, container: str | list[str | dict | list[str | dict]]):
         if isinstance(container, str):
             return container
         elements = []
@@ -109,6 +109,8 @@ class DocumentGenerator:
         )
 
     def generate_md_element(self, elem_id: str, element: dict):
+        if elem_id == "table":
+            return self.elem_table(element)
         generator = self._get_elem_generator(_elem, elem_id, "MD")
         if elem_id in self.nested_keys:
             return self.elem_nested(generator, element, self.nested_keys[elem_id])
@@ -138,6 +140,29 @@ class DocumentGenerator:
             content = self.generate_container(config)
             config = {}
         return _elem.heading(content, level=1, **config)
+
+    def elem_table(self, config: dict):
+        rows_out = []
+        for row in config["rows"]:
+            row_cells = []
+            if isinstance(row, tuple):
+                cells = row[0]
+                row_attrs = row[1]
+            else:
+                cells = row
+                row_attrs = None
+            for cell in cells:
+                if isinstance(cell, tuple):
+                    cell_data = cell[0]
+                    cell_attrs = cell[1]
+                else:
+                    cell_data = cell
+                    cell_attrs = None
+                cell_compiled = self.generate_container(cell_data)
+                row_cells.append(cell_compiled if not cell_attrs else (cell_compiled, cell_attrs))
+            rows_out.append(row_cells if not row_attrs else (row_cells, row_attrs))
+        config["rows"] = rows_out
+        return _elem.table(**config)
 
     @staticmethod
     def _get_elem_generator(module, elem_id, class_name):
