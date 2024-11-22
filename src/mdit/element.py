@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING as _TYPE_CHECKING, Sequence as _Sequence
 from types import FunctionType as _FunctionType
 from contextlib import contextmanager as _contextmanager
 import re as _re
+import copy as _copy
 
 import htmp as _htmp
 import pyserials as _ps
@@ -2168,7 +2169,7 @@ def badges(
     attrs_source_dark: dict | None = None,
     attrs_picture: dict | None = None,
     attrs_a: dict | None = None,
-    container: Stringable | None = "span",
+    container: Stringable | None = "div",
     attrs_container: dict | None = None,
     container_conditions: str | list[str] | None = None,
     merge_params: bool = True,
@@ -2176,7 +2177,7 @@ def badges(
     target_configs: TargetConfigs = None,
     target_default: str = "sphinx",
 ) -> MDContainer:
-    default = locals()
+    default = _copy.deepcopy(locals())
     for top_level_param in ("items", "separator", "container", "attrs_container", "container_conditions"):
         default.pop(top_level_param)
     gradient = _make_badge_gradients(inputs=default, count_items=len(items))
@@ -2189,7 +2190,10 @@ def badges(
                     "message": badge_settings
                 },
             }
-        badge_settings = default | badge_settings
+        _ps.update.dict_from_addon(
+            data=badge_settings,
+            addon={k: v for k, v in default.items() if v is not None}
+        )
         for theme in ("light", "dark"):
             # Set gradient colors if available
             for color in ("color", "label_color", "logo_color"):
@@ -3497,9 +3501,9 @@ def _make_badge_params(inputs: dict):
     ):
         param_light = inputs.get(param_name)
         param_dark = inputs.get(f"{param_name}_dark")
-        if param_light:
+        if param_light is not None:
             params_light[param_name] = param_light
-        if param_dark:
+        if param_dark is not None:
             params_dark[param_name] = param_dark
     return params_light, params_dark
 
@@ -3529,6 +3533,14 @@ def _make_badge_gradients(inputs: dict, count_items: int):
 
 
 
+
+
+
+
+
+
+#
+#
 # def continuous_integration(self, data):
 #     def github(filename, **kwargs):
 #         badge = self._github_badges.workflow_status(filename=filename, **kwargs)
