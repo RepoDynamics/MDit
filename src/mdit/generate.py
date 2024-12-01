@@ -40,7 +40,7 @@ class DocumentGenerator:
         heading = self.elem_heading(config["heading"]) if "heading" in config else None
         body = self.generate_container(config["body"]) if "body" in config else None
         sections = []
-        for section in config.get("section", []):
+        for section in config.get("sections", []):
             sections.append(self.generate(section, base=False))
         footer = self.generate_container(config["footer"]) if "footer" in config else None
         frontmatter = self.elem_frontmatter(config["frontmatter"]) if "frontmatter" in config else None
