@@ -41,7 +41,7 @@ class Container:
         if not key:
             key = max((key for key in self._data.keys() if isinstance(key, int)), default=-1) + 1
         if key in self._data:
-            raise ValueError("Key already exists in content.")
+            raise ValueError(f"Key '{key}' already exists in content.")
         if not conditions:
             conditions = []
         elif isinstance(conditions, str):

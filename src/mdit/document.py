@@ -67,7 +67,7 @@ class Document(_Renderable):
 
     def open_section(
         self,
-        heading: Heading | MDContainer | ContainerContentInputType,
+        heading: Heading | MDContainer | ContainerContentInputType | None = None,
         key: str | int | None = None,
         conditions: list[str] | None = None,
     ):
@@ -100,6 +100,8 @@ class Document(_Renderable):
         heading_number: int | list[int] = 1,
         heading_number_explicit: bool = True,
         separate_sections: bool | None = None,
+        toctree_args: dict[str, str] | None = None,
+        toctree_dirhtml: bool = True,
     ) -> None:
         target = self._resolve_target(target)
         output = self.render(
@@ -108,6 +110,8 @@ class Document(_Renderable):
             heading_number=heading_number,
             heading_number_explicit=heading_number_explicit,
             separate_sections=separate_sections,
+            toctree_args=toctree_args,
+            toctree_dirhtml=toctree_dirhtml
         )
         if isinstance(target, _mdit.target.rich.Config):
             return _mdit.display.console(output)
@@ -120,6 +124,8 @@ class Document(_Renderable):
         heading_number: int | list[int] = 1,
         heading_number_explicit: bool = True,
         separate_sections: bool | None = None,
+        toctree_args: dict[str, str] | None = None,
+        toctree_dirhtml: bool = True,
     ) -> str | RenderableType:
         target = self._resolve_target(target)
         document = self.source(
@@ -128,6 +134,8 @@ class Document(_Renderable):
             heading_number=heading_number,
             heading_number_explicit=heading_number_explicit,
             separate_sections=separate_sections,
+            toctree_args=toctree_args,
+            toctree_dirhtml=toctree_dirhtml,
         )
         if isinstance(target, _mdit.target.rich.Config):
             return document
@@ -140,6 +148,8 @@ class Document(_Renderable):
         heading_number: int | Sequence[int] = 1,
         heading_number_explicit: bool = True,
         separate_sections: bool | None = None,
+        toctree_args: dict[str, str] | None = None,
+        toctree_dirhtml: bool = True,
     ) -> str | dict[str, str] | RenderableType:
         target = self._resolve_target(target)
         heading_number = list(heading_number) if isinstance(heading_number, Sequence) else [1] * heading_number
@@ -150,6 +160,8 @@ class Document(_Renderable):
                     filters=filters,
                     heading_number=heading_number,
                     separate_sections=separate_sections,
+                    toctree_args=toctree_args,
+                    toctree_dirhtml=toctree_dirhtml,
                 )
                 return doc
             return self._str_md_single(
@@ -215,13 +227,14 @@ class Document(_Renderable):
             page.append(_mdit.element.toggle(page_content, title=heading).source(target=target))
         return "\n\n".join(page).strip()
 
-
     def _str_md_multi(
         self,
         target: MDTargetConfig,
         filters: str | list[str] | None,
         heading_number: list[int],
         separate_sections: bool | None,
+        toctree_args: dict[str, str] | None = None,
+        toctree_dirhtml: bool | None = None,
     ) -> dict[str, str]:
         heading_level = len(heading_number)
         document = {}
@@ -229,15 +242,17 @@ class Document(_Renderable):
         if self.heading:
             with self.heading.temp(level=heading_number, explicit_number=False):
                 page.append(self.heading.source(target=target, filters=filters))
-        separate_sections = (self.depth(target=target, filters=filters) > 6) or (
+        do_separate_sections = (self.depth(target=target, filters=filters) > 6) or (
             separate_sections if separate_sections is not None else self.separate_sections
         )
-        if separate_sections:
+        dirhtml = toctree_dirhtml if toctree_dirhtml is not None else self.toctree_dirhtml
+        if do_separate_sections:
             toctree_children = [
-                f"{key}/index" if self.toctree_dirhtml else key for key in self.section.keys()
+                f"{key}/index" if dirhtml else key for key in self.section.keys()
             ]
-            toctree = _elem.toctree(*toctree_children, **self.toctree_args)
-            page.append(toctree.source(target=target, filters=filters))
+            if toctree_children:
+                toctree = _elem.toctree(toctree_children, **(self.toctree_args | (toctree_args or {})))
+                page.append(toctree.source(target=target, filters=filters))
         content = self.body.source(target=target, filters=filters)
         if content:
             page.append(content)
@@ -246,15 +261,17 @@ class Document(_Renderable):
                 subsections_str = section.source(
                     target=target,
                     filters=filters,
-                    heading_number=[1] if separate_sections else heading_number + [1],
-                    separate_sections=False if separate_sections is False else None,
+                    heading_number=[1] if do_separate_sections else heading_number + [1],
+                    separate_sections=separate_sections,
+                    toctree_args=toctree_args,
+                    toctree_dirhtml=toctree_dirhtml,
                 )
-                if not separate_sections:
+                if not do_separate_sections:
                     page.append(subsections_str["index"])
                     continue
                 for sub_key, sub_section in subsections_str.items():
                     if sub_key == "index":
-                        doc_key = f"{key}/index" if self.toctree_dirhtml else str(key)
+                        doc_key = f"{key}/index" if dirhtml else str(key)
                         document[doc_key] = sub_section
                     else:
                         document[f"{key}/{sub_key}"] = sub_section

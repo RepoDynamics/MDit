@@ -1077,7 +1077,7 @@ class Heading(Element):
         if level > 6:
             return f"**{content}**"
         heading_str = f"{'#' * level} {content}"
-        if (self.classes or self.name) and target.attrs_block:
+        if self.classes and target.attrs_block:
             return attribute(
                 content=heading_str,
                 block=True,
