@@ -289,7 +289,7 @@ class Attribute(Element):
         attributor = f"{{{" ".join(attrs)}}}"
         if self.block:
             return f"{attributor}\n{content.lstrip()}"
-        return f"[{content.strip()}]{attributor}"
+        return f"{content.strip()}{attributor}"
 
     def _source_rich(self, target: RichTargetConfig, filters: str | list[str] | None = None) -> RenderableType:
         return self.content.source(
@@ -900,7 +900,7 @@ class FieldListItem(Element):
         indent = " " * (self.indent if target.field_list else 2)  # 2 for normal list
         description_indented = "\n".join(f"{indent}{line}" for line in body.splitlines()).strip()
         if target.field_list:
-            return f":{title}: {body}".strip()
+            return f":{title}: {description_indented}".strip()
         return f"- **{title}**{f": {description_indented}" if description_indented else ''}"
 
     def _source_rich(self, target: RichTargetConfig, filters: str | list[str] | None = None) -> RenderableType:
@@ -1179,27 +1179,42 @@ class InlineImage(Element):
         return
 
     def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
-        img_attrs = {
-            "src": self.src,
-            "title": self.title,
-            "alt": self.alt,
-            "height": self.height,
-            "width": self.width,
-            "align": self.align,
-            "class": self.classes,
-            "id": self.name,
-        } | self.attrs_img
-        image = _htmp.elementor.picture_color_scheme(
-            src_light=self.src,
-            src_dark=self.src_dark,
-            attrs_img=img_attrs,
-            attrs_source_light=self.attrs_source_light,
-            attrs_source_dark=self.attrs_source_dark,
-            attrs_picture=self.attrs_picture,
-        ) if self.src_dark and target.picture_theme else _htmp.element.img(img_attrs)
-        if self.link:
-            attrs_a = {"href": self.link, "alt": self.alt} | self.attrs_a
-            image = _htmp.element.a(image, attrs_a)
+        if target.prefer_md:
+            image = f"![{self.alt or ""}]({self.src})"
+            if (self.height or self.width or self.align or self.classes or self.name) and target.attrs_inline:
+                image = attribute(
+                    content=image,
+                    block=False,
+                    classes=self.classes,
+                    name=self.name,
+                    attrs={"align": self.align, "height": self.height, "width": self.width},
+                    target_configs=self.target_configs,
+                    target_default=self.target_default,
+                ).source(target=target, filters=filters)
+            if self.link:
+                image=f"[{image}]({self.link})"
+        else:
+            img_attrs = {
+                "src": self.src,
+                "title": self.title,
+                "alt": self.alt,
+                "height": self.height,
+                "width": self.width,
+                "align": self.align,
+                "class": self.classes,
+                "id": self.name,
+            } | self.attrs_img
+            image = _htmp.elementor.picture_color_scheme(
+                src_light=self.src,
+                src_dark=self.src_dark,
+                attrs_img=img_attrs,
+                attrs_source_light=self.attrs_source_light,
+                attrs_source_dark=self.attrs_source_dark,
+                attrs_picture=self.attrs_picture,
+            ) if self.src_dark and target.picture_theme else _htmp.element.img(img_attrs)
+            if self.link:
+                attrs_a = {"href": self.link, "alt": self.alt} | self.attrs_a
+                image = _htmp.element.a(image, attrs_a)
         return self._wrap(content=str(image), container=self.container, attrs_container=self.attrs_container)
 
 
