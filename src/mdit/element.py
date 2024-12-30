@@ -5,6 +5,7 @@ from types import FunctionType as _FunctionType
 from contextlib import contextmanager as _contextmanager
 import re as _re
 import copy as _copy
+import html as _html
 
 import htmp as _htmp
 import pyserials as _ps
@@ -1180,7 +1181,8 @@ class InlineImage(Element):
 
     def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
         if target.prefer_md:
-            image = f"![{self.alt or ""}]({self.src})"
+            alt = _html.escape(self.alt or "")
+            image = f"![{alt}]({self.src})"
             if (self.height or self.width or self.align or self.classes or self.name) and target.attrs_inline:
                 image = attribute(
                     content=image,
@@ -2127,8 +2129,8 @@ def badge(
     image = inline_image(
         src=bdg.url(light=True),
         src_dark=bdg.url(light=False) if params_dark else None,
-        title=title or bdg.attrs_img.get("title"),
-        alt=alt or bdg.attrs_img.get("alt"),
+        title=title if title is not None else bdg.attrs_img.get("title"),
+        alt=alt if alt is not None else bdg.attrs_img.get("alt"),
         height=height,
         width=width,
         align=align,
@@ -2850,7 +2852,7 @@ def html(
     target_configs: TargetConfigs = None,
     target_default: str = "sphinx",
 ):
-    content = _mdit.container(
+    content = _mdit.to_md_container(
         content,
         content_separator=content_separator,
         target_configs=target_configs,

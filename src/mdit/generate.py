@@ -62,7 +62,6 @@ class DocumentGenerator:
         generator = self._get_elem_generator(_mdit.template, template_name, "template")
         return generator(**config)
 
-
     def generate_container(self, container: str | list[str | dict | list[str | dict]]):
         if isinstance(container, str):
             return container
