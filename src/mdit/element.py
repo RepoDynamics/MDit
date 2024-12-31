@@ -69,6 +69,17 @@ class Element(_Renderable):
         container_func = getattr(_htmp.element, str(container))
         return container_func(_htmp.elementor.markdown(content), attrs_container).source(indent=-1)
 
+    @staticmethod
+    def _escape(content: Stringable):
+        """Escape all ASCII punctuation characters in a Markdown string.
+
+        References
+        ----------
+        - [GFM Documentation](https://github.github.com/gfm/#backslash-escapes)
+        """
+        ascii_punctuation = r'!"#$%&\'()*+,\-./:;<=>?@[\\]^_`{|}~'
+        return _re.sub(f'([{_re.escape(ascii_punctuation)}])', r'\\\1', str(content))
+
 
 class Admonition(Element):
 
@@ -1181,7 +1192,7 @@ class InlineImage(Element):
 
     def _source_md(self, target: MDTargetConfig, filters: str | list[str] | None = None) -> str:
         if target.prefer_md:
-            alt = _html.escape(self.alt or "")
+            alt = self._escape(self.alt or "")
             image = f"![{alt}]({self.src})"
             if (self.height or self.width or self.align or self.classes or self.name) and target.attrs_inline:
                 image = attribute(
@@ -1194,7 +1205,7 @@ class InlineImage(Element):
                     target_default=self.target_default,
                 ).source(target=target, filters=filters)
             if self.link:
-                image=f"[{image}]({self.link})"
+                image=f"[{image}]({self.link}{f' "{self._escape(self.title)}"' if self.title else ""})"
         else:
             img_attrs = {
                 "src": self.src,
