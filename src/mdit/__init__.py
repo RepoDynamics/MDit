@@ -27,7 +27,7 @@ def generate(config: dict | list):
 def document(
     heading: element.Heading | MDContainer | ContainerContentInputType = None,
     body: MDContainer | ContainerContentInputType = None,
-    section: Container | None = None,
+    section: Container | dict | list | tuple | None = None,
     footer: MDContainer | ContainerContentInputType = None,
     frontmatter: dict | element.FrontMatter | None = None,
     frontmatter_conditions: list[str] | None = None,
