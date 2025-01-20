@@ -29,9 +29,9 @@ def make_registry(
     registry = _jsonschemata.registry.make(
         dynamic=dynamic,
         crawl=crawl,
-        add_resources=resources,
-        add_resources_default_spec=add_resources_default_spec,
-        retrieval_func=retrieval_func,
+        resources=resources,
+        default_specification=add_resources_default_spec,
+        retrieval_function=retrieval_func,
     )
     return registry, schemata
 
