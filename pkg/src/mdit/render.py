@@ -106,6 +106,7 @@ def sphinx(
             with open(filepath, "w") as f:
                 f.write(text)
         out_dir = temp_dir / "build"
+        out_dir.mkdir(parents=True, exist_ok=True)
         _Sphinx(
             srcdir=src_dir,
             confdir=None,
