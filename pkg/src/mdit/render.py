@@ -73,13 +73,9 @@ def get_sphinx_config(
         "html_title": "",
     }
     config_final = _copy.deepcopy(config) or {}
-    _ps.update.dict_from_addon(
-        data=config_final,
+    _ps.update.recursive_update(
+        source=config_final,
         addon=config_default,
-        append_list=append_list,
-        append_dict=append_dict,
-        raise_duplicates=False,
-        raise_type_mismatch=False,
     )
     return config_final
 

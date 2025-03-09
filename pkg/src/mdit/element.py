@@ -2218,8 +2218,8 @@ def badges(
                     "message": badge_settings
                 },
             }
-        _ps.update.dict_from_addon(
-            data=badge_settings,
+        _ps.update.recursive_update(
+            source=badge_settings,
             addon={k: v for k, v in default.items() if v is not None}
         )
         for theme in ("light", "dark"):
